@@ -1,0 +1,116 @@
+
+# Pionianalyysi (E/p ROOT/RDataFrame)
+
+Tässä projektissa tuotetaan ja piirretään histogrammeja CMS\:n PFNano-muotoisista simuloiduista tapahtumista.
+
+## Hakemistorakenne
+
+```
+my_pion_analysis/
+├── scripts/              # ROOT-makrot histogrammien tekoon ja plottaukseen
+│  ├── run_histograms.cc
+│  ├── plot_histograms.cc
+│  ├── input_files.txt
+│  └── test_input.txt
+├── histograms/          # Tuotetut ROOT-histogrammitiedostot
+├── plots/               # PNG-kuvat piirretyistä histogrammeista
+└── results/             # Mahdolliset jatkoanalyysitulokset
+```
+
+## Kuinka ajaa koodi LXPlussassa
+
+### 1. Kirjaudu LXPlussaan ja siirry projektihakemistoon:
+
+```
+ssh lxplus.cern.ch
+cd /eos/user/m/mmarjama/my_pion_analysis
+```
+
+### 2. Lataa tarvittavat ohjelmistot (ROOT, VOMS, jne.):
+
+```
+source /cvmfs/sft.cern.ch/lcg/views/LCG_107a/x86_64-el9-gcc14-opt/setup.sh
+```
+
+### 3. Ota käyttöön toimiva Java-versio VOMSia varten:
+
+```
+export JAVA_HOME=/cvmfs/sft.cern.ch/lcg/releases/java/11.0.26p4-f0080/x86_64-el9-gcc13-opt
+export PATH=$JAVA_HOME/bin:$PATH
+```
+
+### 4. Luo käyttöoikeustodistus:
+
+```
+voms-proxy-init --voms cms
+```
+
+### 5. Aja histogrammien tuotto tiedostolla:
+
+```
+root -l 'scripts/run_histograms.cc'
+```
+
+### 6. Piirrä histogrammit kuviksi:
+
+```
+root -l 'scripts/plot_histograms.cc'
+```
+
+### 7. Tulokset:
+
+* Histogrammit tallennetaan tiedostoon: `histograms/pion_histos.root`
+* Kuvana: `plots/charged_pions.png`
+
+## Yhteenveto
+
+* `run_histograms.cc` käyttää ROOT RDataFramea, valitsee ladatut pionit ja kirjoittaa histogrammit ROOT-tiedostoon.
+* `plot_histograms.cc` lukee ROOT-tiedoston ja piirtää PNG-kuvan histogrammeista.
+
+## Kuinka saada TBrowser auki -->
+
+Omalla koneella
+```
+scp mmarjama@lxplus.cern.ch:/eos/user/m/mmarjama/my_pion_analysis/histograms/pion_histos.root .
+pion_histos.root
+```
+root
+```
+TBrowser b;
+```
+
+## Uusien tiedostojen lataamiset -->
+
+bash
+```
+dasgoclient -query="file dataset=/ZeroBias/nbinnorj-Run2024C_PromptRecoNano_v1_CDEReprocessing_AODToPFNANO_v0p1-00000000000000000000000000000000/USER instance=prod/phys03" > scripts/input_files_ZeroBias_Run2024C.txt
+
+dasgoclient -query="file dataset=/ZeroBias/nbinnorj-Run2024D_PromptRecoNano_v1_CDEReprocessing_AODToPFNANO_v0p1-00000000000000000000000000000000/USER instance=prod/phys03" > scripts/input_files_ZeroBias_Run2024D.txt
+
+dasgoclient -query="file dataset=/ZeroBias/nbinnorj-Run2024E_PromptRecoNano_v1_CDEReprocessing_AODToPFNANO_v0p1-00000000000000000000000000000000/USER instance=prod/phys03" > scripts/input_files_ZeroBias_Run2024E.txt
+
+dasgoclient -query="file dataset=/ZeroBias/nbinnorj-Run2024F_PromptRecoNano_v1_Prompt_AODToPFNANO_v0p1-00000000000000000000000000000000/USER instance=prod/phys03" > scripts/input_files_ZeroBias_Run2024F.txt
+
+dasgoclient -query="file dataset=/ZeroBias/nbinnorj-Run2024G_PromptRecoNano_v1_Prompt_AODToPFNANO_v0p1-00000000000000000000000000000000/USER instance=prod/phys03" > scripts/input_files_ZeroBias_Run2024G.txt
+
+dasgoclient -query="file dataset=/ZeroBias/nbinnorj-Run2024H_PromptRecoNano_v1_Prompt_AODToPFNANO_v0p1-00000000000000000000000000000000/USER instance=prod/phys03" > scripts/input_files_ZeroBias_Run2024H.txt
+
+dasgoclient -query="file dataset=/ZeroBias/nbinnorj-Run2024I_PromptRecoNano_v1_Prompt_AODToPFNANO_v0p1-00000000000000000000000000000000/USER instance=prod/phys03" > scripts/input_files_ZeroBias_Run2024I_v1.txt
+
+dasgoclient -query="file dataset=/ZeroBias/nbinnorj-Run2024I_PromptRecoNano_v2_Prompt_AODToPFNANO_v0p1-00000000000000000000000000000000/USER instance=prod/phys03" > scripts/input_files_ZeroBias_Run2024I_v2.txt
+```
+
+## rootien muodostamiset -->
+bash
+```
+root -l -q 'scripts/run_histograms.cc("scripts/input_files_ZeroBias_Run2024#.txt", "Run2024#")'
+```
+- vaihda # aina tiedoston kirjaimeen tai I:n tapauksessa
+    2024I_v1 ja 2024I_v2
+
+## merging
+bash
+```
+hadd ParkingDoubleMuon_Run2024F.root histograms/pion_histos_iso_Run2024F_LowMass*.root
+```
+hadd histograms/ParkingDoubleMuon_Run2024F.root histograms/pion_histos_iso_Run2024F_LowMass*.root

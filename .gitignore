@@ -1,0 +1,10 @@
+*.root
+*.so
+*.d
+*.pcm
+*.swp
+*.tmp
+*.log
+run_all.sh.e*
+run_all.sh.o*
+*.txt
