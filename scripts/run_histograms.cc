@@ -462,6 +462,19 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 #include "ROOT/RDataFrame.hxx"
 #include "TFile.h"
 #include "TH1F.h"
@@ -477,14 +490,13 @@
 #include <sstream>
 #include <chrono>
 
-// Määrittele epälineaariset momentum-binit
-double trkPBins[] = {
+// Momentum-binien määrittely
+const double trkPBins[] = {
     3.0, 3.3, 3.6, 3.9, 4.2, 4.6, 5.0, 5.5, 6.0, 6.6,
     7.2, 7.9, 8.6, 9.3, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
     16.5, 18.0, 20.0, 22.0, 25.0, 30.0, 35.0, 40.0, 45.0, 55.0, 70.0, 130.0
 };
-
-int nTrkPBins = sizeof(trkPBins) / sizeof(double) - 1;
+const int nTrkPBins = sizeof(trkPBins) / sizeof(double) - 1;
 
 void run_histograms(const char* listfile, const char* tag) {
     auto start = std::chrono::high_resolution_clock::now();
@@ -494,97 +506,109 @@ void run_histograms(const char* listfile, const char* tag) {
     std::string line;
     std::vector<std::string> files;
     while (std::getline(infile, line)) {
-        if (!line.empty()) {
+        if (!line.empty())
             files.push_back("root://hip-cms-se.csc.fi/" + line);
-        }
     }
 
     std::cout << "Processing " << files.size() << " files..." << std::endl;
     ROOT::RDataFrame df("Events", files);
 
     auto df_iso = df
-        .Define("isoMaskBool", [](const ROOT::VecOps::RVec<int>& pdgId,
-                                   const ROOT::VecOps::RVec<bool>& isoFlag) {
+        .Define("isoMask", [](const ROOT::VecOps::RVec<int>& pdgId,
+                            const ROOT::VecOps::RVec<bool>& isoFlag) {
             ROOT::VecOps::RVec<bool> mask(pdgId.size());
             for (size_t i = 0; i < pdgId.size(); ++i) {
                 mask[i] = (std::abs(pdgId[i]) == 211) && isoFlag[i];
             }
             return mask;
         }, {"PFCand_pdgId", "PFCand_isIsolatedChargedHadron"})
-        .Filter([](const ROOT::VecOps::RVec<bool>& mask) { return Sum(mask) > 0; }, {"isoMaskBool"})
-        .Define("ptIso", "PFCand_pt[isoMaskBool]")
-        .Define("etaIso", "PFCand_eta[isoMaskBool]")
-        .Define("ecalIso", "PFCand_ecalEnergy[isoMaskBool]")
-        .Define("hcalIso", "PFCand_hcalEnergy[isoMaskBool]")
-        .Define("rawEcalIso", "PFCand_rawEcalEnergy[isoMaskBool]")
-        .Define("rawHcalIso", "PFCand_rawHcalEnergy[isoMaskBool]")
+
+        .Filter("Sum(isoMask) > 0", "Has isolated charged pions")
+        .Define("ptIso", "PFCand_pt[isoMask]")
+        .Define("etaIso", "PFCand_eta[isoMask]")
         .Define("pIso", "ptIso * cosh(etaIso)")
+        .Define("ecalIso", "PFCand_ecalEnergy[isoMask]")
+        .Define("hcalIso", "PFCand_hcalEnergy[isoMask]")
+        .Define("rawEcalIso", "PFCand_rawEcalEnergy[isoMask]")
+        .Define("rawHcalIso", "PFCand_rawHcalEnergy[isoMask]")
         .Define("detIsoE", "ecalIso + hcalIso")
         .Define("rawDetIsoE", "rawEcalIso + rawHcalIso")
         .Define("epIso", "detIsoE / pIso")
         .Define("rawEpIso", "rawDetIsoE / pIso")
         .Define("fracEcal", "ecalIso / pIso")
         .Define("fracHcal", "hcalIso / pIso")
-        .Define("fracRawEcal", "rawEcalIso / pIso")
-        .Define("fracRawHcal", "rawHcalIso / pIso")
-        .Define("isHadH", "fracEcal <= 0 && fracHcal > 0")
-        .Define("isHadE", "fracEcal > 0 && fracHcal <= 0")
-        .Define("isHadMIP", "fracEcal > 0 && fracEcal * pIso < 1 && fracHcal > 0")
-        .Define("isHadEH", "fracEcal > 0 && fracEcal * pIso >= 1 && fracHcal > 0")
-        .Define("isHadH_raw", "fracRawEcal <= 0 && fracRawHcal > 0")
-        .Define("isHadE_raw", "fracRawEcal > 0 && fracRawHcal <= 0")
-        .Define("isHadMIP_raw", "fracRawEcal > 0 && fracRawEcal * pIso < 1 && fracRawHcal > 0")
-        .Define("isHadEH_raw", "fracRawEcal > 0 && fracRawEcal * pIso >= 1 && fracRawHcal > 0");
+        .Define("isHadH", "(fracEcal <= 0) && (fracHcal > 0)")
+        .Define("isHadE", "(fracEcal > 0) && (fracHcal <= 0)")
+        .Define("isHadMIP", "(fracEcal > 0) && (fracEcal * pIso < 1) && (fracHcal > 0)")
+        .Define("isHadEH", "(fracEcal > 0) && (fracEcal * pIso >= 1) && (fracHcal > 0)");
 
-    std::string filename = std::string(tag) + ".root";
+    // Asetetaan root filen sijoituspaikka ja nimi
+    std::string filename = "histograms/" + std::string(tag) + ".root";
     TFile out(filename.c_str(), "RECREATE");
 
-    auto h2 = df_iso.Histo2D({"h2_ep_vs_p_iso", "E/p vs p (isolated)", nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "epIso");
-    auto h2_raw = df_iso.Histo2D({"h2_raw_ep_vs_p_iso", "Raw E/p vs p (isolated)", nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "rawEpIso");
+    auto h2_ep = df_iso.Histo2D({"h2_ep_vs_p_iso", "E/p vs p", nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "epIso");
+    auto h2_raw = df_iso.Histo2D({"h2_raw_ep_vs_p_iso", "Raw E/p vs p", nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "rawEpIso");
 
-    h2->Write();
-    h2_raw->Write();
+    auto prof_ep = df_iso.Profile1D({"prof_ep_vs_p_iso", "<E/p> vs p", 50, 0, 10}, "pIso", "epIso");
+    auto prof_raw_ep = df_iso.Profile1D({"prof_raw_ep_vs_p_iso", "<Raw E/p> vs p", 50, 0, 10}, "pIso", "rawEpIso");
+    auto prof_ep_custom = df_iso.Profile1D({"prof_ep_vs_p_iso_custom", "<E/p> vs p (custom)", nTrkPBins, trkPBins}, "pIso", "epIso");
+    auto prof_raw_ep_custom = df_iso.Profile1D({"prof_raw_ep_vs_p_iso_custom", "<Raw E/p> vs p (custom)", nTrkPBins, trkPBins}, "pIso", "rawEpIso");
 
-    std::vector<std::pair<double, double>> pBins = {
-        {5.5, 6.0}, {6.0, 7.0}, {7.0, 8.0}, {8.0, 9.0}, {20.0, 22.0}
-    };
+    auto h_pt = df_iso.Histo1D({"h_pt_iso", "pT", 50, 0, 100}, "ptIso");
+    auto h_eta = df_iso.Histo1D({"h_eta_iso", "eta", 50, -1.3, 1.3}, "etaIso");
+    auto h_ep = df_iso.Histo1D({"h_ep_iso", "E/p", 50, 0, 5}, "epIso");
+    auto h_raw_ep = df_iso.Histo1D({"h_raw_ep_iso", "Raw E/p", 50, 0, 5}, "rawEpIso");
 
+    auto h_ep_H   = df_iso.Filter("Sum(isHadH) > 0").Histo1D({"h_ep_isHadH", "E/p: HCAL only", 50, 0, 2.5}, "epIso");
+    auto h_ep_E   = df_iso.Filter("Sum(isHadE) > 0").Histo1D({"h_ep_isHadE", "E/p: ECAL only", 50, 0, 2.5}, "epIso");
+    auto h_ep_MIP = df_iso.Filter("Sum(isHadMIP) > 0").Histo1D({"h_ep_isHadMIP", "E/p: MIP", 50, 0, 2.5}, "epIso");
+    auto h_ep_EH  = df_iso.Filter("Sum(isHadEH) > 0").Histo1D({"h_ep_isHadEH", "E/p: ECAL+HCAL", 50, 0, 2.5}, "epIso");
+
+    auto h_raw_H   = df_iso.Filter("Sum(isHadH) > 0").Histo1D({"h_raw_ep_isHadH", "Raw E/p: HCAL only", 50, 0, 2.5}, "rawEpIso");
+    auto h_raw_E   = df_iso.Filter("Sum(isHadE) > 0").Histo1D({"h_raw_ep_isHadE", "Raw E/p: ECAL only", 50, 0, 2.5}, "rawEpIso");
+    auto h_raw_MIP = df_iso.Filter("Sum(isHadMIP) > 0").Histo1D({"h_raw_ep_isHadMIP", "Raw E/p: MIP", 50, 0, 2.5}, "rawEpIso");
+    auto h_raw_EH  = df_iso.Filter("Sum(isHadEH) > 0").Histo1D({"h_raw_ep_isHadEH", "Raw E/p: ECAL+HCAL", 50, 0, 2.5}, "rawEpIso");
+
+    std::vector<std::pair<double, double>> pBins = {{5.5, 6.0}, {20.0, 22.0}};
     for (const auto& [pmin, pmax] : pBins) {
-        int bin_min = h2->GetXaxis()->FindBin(pmin + 1e-3);
-        int bin_max = h2->GetXaxis()->FindBin(pmax - 1e-3);
+        int bin_min = h2_ep->GetXaxis()->FindBin(pmin + 1e-3);
+        int bin_max = h2_ep->GetXaxis()->FindBin(pmax - 1e-3);
 
-        std::stringstream name_raw, name_norm;
-        name_raw << "proj_raw_ep_" << int(pmin * 10) << "_" << int(pmax * 10);
-        name_norm << "proj_ep_" << int(pmin * 10) << "_" << int(pmax * 10);
+        std::stringstream sn, sr;
+        sn << "proj_ep_" << int(pmin * 10) << "_" << int(pmax * 10);
+        sr << "proj_raw_ep_" << int(pmin * 10) << "_" << int(pmax * 10);
 
-        TH1D* proj_norm = h2->ProjectionY(name_norm.str().c_str(), bin_min, bin_max);
-        TH1D* proj_raw = h2_raw->ProjectionY(name_raw.str().c_str(), bin_min, bin_max);
+        auto proj_n = h2_ep->ProjectionY(sn.str().c_str(), bin_min, bin_max);
+        auto proj_r = h2_raw->ProjectionY(sr.str().c_str(), bin_min, bin_max);
 
-        if (proj_norm->Integral() > 0) {
-            proj_norm->Scale(1.0 / proj_norm->Integral());
-            proj_norm->SetNameTitle(name_norm.str().c_str(), "");
-            proj_norm->Write();
+        proj_n->Write(); proj_r->Write();
+        if (proj_n->Integral() > 0) {
+            proj_n->Scale(1.0 / proj_n->Integral());
+            TF1* fit_n = new TF1("fit", "gaus", 0.0, 2.5);
+            proj_n->Fit(fit_n, "RQ");
+            fit_n->SetName((sn.str() + "_fit").c_str());
+            fit_n->Write();
         }
-        if (proj_raw->Integral() > 0) {
-            proj_raw->Scale(1.0 / proj_raw->Integral());
-            proj_raw->SetNameTitle(name_raw.str().c_str(), "");
-            proj_raw->Write();
+        if (proj_r->Integral() > 0) {
+            proj_r->Scale(1.0 / proj_r->Integral());
+            TF1* fit_r = new TF1("fit", "gaus", 0.0, 2.5);
+            proj_r->Fit(fit_r, "RQ");
+            fit_r->SetName((sr.str() + "_fit").c_str());
+            fit_r->Write();
         }
     }
 
-    // isHad*-raw histogrammit
-    auto h_isHadEH_raw  = df_iso.Filter("Sum(isHadEH_raw) > 0").Histo1D({"h_raw_ep_isHadEH", "Raw E/p: ECAL+HCAL", 50, 0, 2.5}, "rawEpIso");
-    auto h_isHadH_raw   = df_iso.Filter("Sum(isHadH_raw) > 0").Histo1D({"h_raw_ep_isHadH", "Raw E/p: HCAL-only", 50, 0, 2.5}, "rawEpIso");
-    auto h_isHadMIP_raw = df_iso.Filter("Sum(isHadMIP_raw) > 0").Histo1D({"h_raw_ep_isHadMIP", "Raw E/p: MIP", 50, 0, 2.5}, "rawEpIso");
-    auto h_isHadE_raw   = df_iso.Filter("Sum(isHadE_raw) > 0").Histo1D({"h_raw_ep_isHadE", "Raw E/p: ECAL-only", 50, 0, 2.5}, "rawEpIso");
-
-    h_isHadEH_raw->Write();
-    h_isHadH_raw->Write();
-    h_isHadMIP_raw->Write();
-    h_isHadE_raw->Write();
+    // Kirjoitetaan plottaukset
+    h2_ep->Write(); h2_raw->Write();
+    prof_ep->Write(); prof_raw_ep->Write();
+    prof_ep_custom->Write(); prof_raw_ep_custom->Write();
+    h_pt->Write(); h_eta->Write(); h_ep->Write(); h_raw_ep->Write();
+    h_ep_H->Write(); h_ep_E->Write(); h_ep_MIP->Write(); h_ep_EH->Write();
+    h_raw_H->Write(); h_raw_E->Write(); h_raw_MIP->Write(); h_raw_EH->Write();
 
     out.Close();
 
+    // Lasketaan vielä datan läpikäymiseen kulunut aika
     auto end = std::chrono::high_resolution_clock::now();
-    std::cout << "Elapsed time: " << std::chrono::duration<double>(end - start).count() << " s" << std::endl;
+    std::cout << "Elapsed time: " << std::chrono::duration<double>(end - start).count() << " s\n";
 }
