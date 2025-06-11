@@ -584,18 +584,18 @@ void run_histograms(const char* listfile, const char* tag) {
         proj_n->Write(); proj_r->Write();
         if (proj_n->Integral() > 0) {
             proj_n->Scale(1.0 / proj_n->Integral());
-            TF1* fit_n = new TF1("fit", "gaus", 0.0, 2.5);
-            proj_n->Fit(fit_n, "RQ");
-            fit_n->SetName((sn.str() + "_fit").c_str());
+            TF1* fit_n = new TF1((sn.str() + "_fit").c_str(), "gaus", 0.0, 2.5);
+            proj_n->Fit(fit_n, "RQ", "", 0.7, 1.2);  // Fit huippuun, piirto laajalle
             fit_n->Write();
         }
         if (proj_r->Integral() > 0) {
             proj_r->Scale(1.0 / proj_r->Integral());
-            TF1* fit_r = new TF1("fit", "gaus", 0.0, 2.5);
-            proj_r->Fit(fit_r, "RQ");
-            fit_r->SetName((sr.str() + "_fit").c_str());
+            TF1* fit_r = new TF1((sr.str() + "_fit").c_str(), "gaus", 0.0, 2.5);
+            proj_r->Fit(fit_r, "RQ", "", 0.7, 1.2);
             fit_r->Write();
         }
+
+
     }
 
     // Kirjoitetaan plottaukset
