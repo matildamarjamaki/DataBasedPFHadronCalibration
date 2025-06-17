@@ -3,20 +3,6 @@
 
 Tässä projektissa tuotetaan ja piirretään histogrammeja CMS\:n PFNano-muotoisista simuloiduista tapahtumista.
 
-## Hakemistorakenne
-
-```
-my_pion_analysis/
-├── scripts/              # ROOT-makrot histogrammien tekoon ja plottaukseen
-│  ├── run_histograms.cc
-│  ├── plot_histograms.cc
-│  ├── input_files.txt
-│  └── test_input.txt
-├── histograms/          # Tuotetut ROOT-histogrammitiedostot
-├── plots/               # PNG-kuvat piirretyistä histogrammeista
-└── results/             # Mahdolliset jatkoanalyysitulokset
-```
-
 ## Kuinka ajaa koodi LXPlussassa
 
 ### 1. Kirjaudu LXPlussaan ja siirry projektihakemistoon:
