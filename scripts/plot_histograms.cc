@@ -1,403 +1,180 @@
 
-// #include "TFile.h"
-// #include "TH1D.h"
-// #include "TH2D.h"
-// #include "TProfile.h"
-// #include "TF1.h"
-// #include "TCanvas.h"
-// #include "TLegend.h"
-// #include "TStyle.h"
-// #include <iostream>
-
-// void plot_histograms() {
-//     TFile *file = TFile::Open("histograms/pion_histos_iso.root");
-//     if (!file || file->IsZombie()) {
-//         std::cerr << "ERROR: Cannot open histogram file!" << std::endl;
-//         return;
-//     }
-
-//     // Lue histogrammit ja profiilit isoloiduille pioneille
-//     TH1D     *h_pt_iso             = (TH1D*)file->Get("h_pt_iso");
-//     TH1D     *h_eta_iso            = (TH1D*)file->Get("h_eta_iso");
-//     TH1D     *h_ep_iso             = (TH1D*)file->Get("h_ep_iso");
-//     TH1D     *h_raw_ep_iso         = (TH1D*)file->Get("h_raw_ep_iso");
-//     TProfile *prof_ep_vs_p_iso     = (TProfile*)file->Get("prof_ep_vs_p_iso");
-//     TProfile *prof_raw_ep_vs_p_iso = (TProfile*)file->Get("prof_raw_ep_vs_p_iso");
-//     TH2D     *h2_ep_vs_p_iso       = (TH2D*)file->Get("h2_ep_vs_p_iso");
-//     TH2D     *h2_raw_ep_vs_p_iso   = (TH2D*)file->Get("h2_raw_ep_vs_p_iso");
-
-//     if (!h_pt_iso || !h_eta_iso || !h_ep_iso || !h_raw_ep_iso || !prof_ep_vs_p_iso || !prof_raw_ep_vs_p_iso || !h2_ep_vs_p_iso || !h2_raw_ep_vs_p_iso) {
-//         std::cerr << "ERROR: One or more histograms or profiles not found in file!" << std::endl;
-//         return;
-//     }
-
-//     // Perushistogrammit
-//     TCanvas *c1 = new TCanvas("c1_iso", "Basic isolated pion histograms", 1200, 900);
-//     c1->Divide(1, 3);
-
-//     c1->cd(1);
-//     gPad->SetLogy();
-//     h_pt_iso->Draw();
-
-//     c1->cd(2);
-//     h_eta_iso->Draw();
-
-//     c1->cd(3);
-//     h_ep_iso->Draw();
-
-//     c1->SaveAs("plots/isolated_pions.png");
-//     delete c1;
-
-//     // Profiiliplotti: ⟨E/p⟩ vs p
-//     TCanvas *c2 = new TCanvas("c2_iso", "<E/p> vs p (isolated)", 800, 600);
-//     prof_ep_vs_p_iso->SetLineColor(kBlue);
-//     prof_ep_vs_p_iso->SetLineWidth(2);
-//     prof_ep_vs_p_iso->Draw("E1");
-//     c2->SaveAs("plots/iso_ep_vs_p.png");
-//     delete c2;
-
-//     // 2D-histogrammi: E/p vs p
-//     TCanvas *c3 = new TCanvas("c3_iso", "E/p vs p (2D isolated)", 800, 600);
-//     gStyle->SetOptStat(0);
-//     h2_ep_vs_p_iso->GetXaxis()->SetNdivisions(10);
-//     h2_ep_vs_p_iso->GetYaxis()->SetRangeUser(0.01, 2.25);
-//     h2_ep_vs_p_iso->Draw("COLZ");
-//     c3->SaveAs("plots/iso_ep_vs_p_2D.png");
-//     delete c3;
-
-//     // Raaka E/p histogrammi
-//     TCanvas *c4 = new TCanvas("c4_iso", "Raw E/p histogram (isolated)", 800, 600);
-//     h_raw_ep_iso->SetLineColor(kMagenta + 1);
-//     h_raw_ep_iso->Draw();
-//     c4->SaveAs("plots/iso_raw_ep_hist.png");
-//     delete c4;
-
-//     // Raaka profiili: ⟨Raw E/p⟩ vs p
-//     TCanvas *c5 = new TCanvas("c5_iso", "<Raw E/p> vs p (isolated)", 800, 600);
-//     prof_raw_ep_vs_p_iso->SetLineColor(kGreen + 2);
-//     prof_raw_ep_vs_p_iso->SetLineWidth(2);
-//     prof_raw_ep_vs_p_iso->Draw("E1");
-//     c5->SaveAs("plots/iso_raw_ep_vs_p.png");
-//     delete c5;
-
-//     // 2D-histogrammi: Raw E/p vs p
-//     TCanvas *c6 = new TCanvas("c6_iso", "Raw E/p vs p (2D isolated)", 800, 600);
-//     h2_raw_ep_vs_p_iso->GetXaxis()->SetNdivisions(10);
-//     h2_raw_ep_vs_p_iso->GetYaxis()->SetRangeUser(0.01, 2.25);
-//     h2_raw_ep_vs_p_iso->Draw("COLZ");
-//     c6->SaveAs("plots/iso_raw_ep_vs_p_2D.png");
-//     delete c6;
-
-//     file->Close();
-// }
-
-// #include "TFile.h"
-// #include "TH1D.h"
-// #include "TH2D.h"
-// #include "TProfile.h"
-// #include "TF1.h"
-// #include "TCanvas.h"
-// #include "TLegend.h"
-// #include "TStyle.h"
-// #include <iostream>
-
-// void plot_histograms() {
-//     TFile *file = TFile::Open("histograms/pion_histos_iso.root");
-//     if (!file || file->IsZombie()) {
-//         std::cerr << "ERROR: Cannot open histogram file!" << std::endl;
-//         return;
-//     }
-
-//     // Histogrammit ja profiilit
-//     TH1D     *h_pt_iso     = (TH1D*)file->Get("h_pt_iso");
-//     TH1D     *h_eta_iso    = (TH1D*)file->Get("h_eta_iso");
-//     TH1D     *h_ep_iso     = (TH1D*)file->Get("h_ep_iso");
-//     TH1D     *h_raw_ep_iso = (TH1D*)file->Get("h_raw_ep_iso");
-
-//     TProfile *prof_ep_vs_p_iso            = (TProfile*)file->Get("prof_ep_vs_p_iso");
-//     TProfile *prof_ep_vs_p_iso_custom     = (TProfile*)file->Get("prof_ep_vs_p_iso_custom");
-//     TProfile *prof_raw_ep_vs_p_iso        = (TProfile*)file->Get("prof_raw_ep_vs_p_iso");
-//     TProfile *prof_raw_ep_vs_p_iso_custom = (TProfile*)file->Get("prof_raw_ep_vs_p_iso_custom");
-
-//     TH2D *h2_ep_vs_p_iso     = (TH2D*)file->Get("h2_ep_vs_p_iso");
-//     TH2D *h2_raw_ep_vs_p_iso = (TH2D*)file->Get("h2_raw_ep_vs_p_iso");
-
-//     if (!h_pt_iso || !h_eta_iso || !h_ep_iso || !h_raw_ep_iso ||
-//         !prof_ep_vs_p_iso || !prof_ep_vs_p_iso_custom ||
-//         !prof_raw_ep_vs_p_iso || !prof_raw_ep_vs_p_iso_custom ||
-//         !h2_ep_vs_p_iso || !h2_raw_ep_vs_p_iso) {
-//         std::cerr << "ERROR: One or more histograms or profiles not found in file!" << std::endl;
-//         return;
-//     }
-
-//     // Perushistogrammit
-//     h_pt_iso->GetXaxis()->SetTitle("p_{T} [GeV]");
-//     h_pt_iso->GetYaxis()->SetTitle("Entries");
-//     h_eta_iso->GetXaxis()->SetTitle("#eta");
-//     h_eta_iso->GetYaxis()->SetTitle("Entries");
-//     h_ep_iso->GetXaxis()->SetTitle("(E_{ECAL}+E_{HCAL}) / p");
-//     h_ep_iso->GetYaxis()->SetTitle("Entries");
-
-//     TCanvas *c1 = new TCanvas("c1_iso", "Basic isolated pion histograms", 1200, 900);
-//     c1->Divide(1, 3);
-//     c1->cd(1); gPad->SetLogy(); h_pt_iso->Draw();
-//     c1->cd(2); h_eta_iso->Draw();
-//     c1->cd(3); h_ep_iso->Draw();
-//     c1->SaveAs("plots/isolated_pions.png");
-//     delete c1;
-
-//     // Profiilit
-//     prof_ep_vs_p_iso->GetXaxis()->SetTitle("p [GeV]");
-//     prof_ep_vs_p_iso->GetYaxis()->SetTitle("<E/p>");
-//     TCanvas *c2 = new TCanvas("c2_iso", "<E/p> vs p (isolated)", 800, 600);
-//     prof_ep_vs_p_iso->SetLineColor(kBlue); prof_ep_vs_p_iso->SetLineWidth(2);
-//     prof_ep_vs_p_iso->Draw("E1");
-//     c2->SaveAs("plots/iso_ep_vs_p.png");
-//     delete c2;
-
-//     prof_ep_vs_p_iso_custom->GetXaxis()->SetTitle("p [GeV]");
-//     prof_ep_vs_p_iso_custom->GetYaxis()->SetTitle("<E/p>");
-//     TCanvas *c2b = new TCanvas("c2b_iso", "<E/p> vs p (isolated, custom)", 800, 600);
-//     prof_ep_vs_p_iso_custom->SetLineColor(kOrange + 1); prof_ep_vs_p_iso_custom->SetLineWidth(2);
-//     prof_ep_vs_p_iso_custom->Draw("E1");
-//     c2b->SaveAs("plots/iso_ep_vs_p_custom.png");
-//     delete c2b;
-
-//     // 2D E/p vs p
-//     h2_ep_vs_p_iso->GetXaxis()->SetTitle("p [GeV]");
-//     h2_ep_vs_p_iso->GetYaxis()->SetTitle("E/p");
-//     h2_ep_vs_p_iso->GetYaxis()->SetRangeUser(0.01, 2.25);
-//     // h2_ep_vs_p_iso->GetYaxis()->SetNdivisions(45);  // ≈0.05 välein
-//     TCanvas *c3 = new TCanvas("c3_iso", "E/p vs p (2D isolated)", 800, 600);
-//     gStyle->SetOptStat(0);
-//     h2_ep_vs_p_iso->Draw("COLZ");
-//     c3->SaveAs("plots/iso_ep_vs_p_2D.png");
-//     delete c3;
-
-//     // Raaka E/p histogrammi
-//     h_raw_ep_iso->GetXaxis()->SetTitle("Raw (E_{ECAL}+E_{HCAL}) / p");
-//     h_raw_ep_iso->GetYaxis()->SetTitle("Entries");
-//     TCanvas *c4 = new TCanvas("c4_iso", "Raw E/p histogram (isolated)", 800, 600);
-//     h_raw_ep_iso->SetLineColor(kMagenta + 1);
-//     h_raw_ep_iso->Draw();
-//     c4->SaveAs("plots/iso_raw_ep_hist.png");
-//     delete c4;
-
-//     // Raaka profiilit
-//     prof_raw_ep_vs_p_iso->GetXaxis()->SetTitle("p [GeV]");
-//     prof_raw_ep_vs_p_iso->GetYaxis()->SetTitle("<Raw E/p>");
-//     prof_raw_ep_vs_p_iso->GetYaxis()->SetRangeUser(0.0, 2.25);
-//     TCanvas *c5 = new TCanvas("c5_iso", "<Raw E/p> vs p (isolated)", 800, 600);
-//     prof_raw_ep_vs_p_iso->SetLineColor(kGreen + 2); prof_raw_ep_vs_p_iso->SetLineWidth(2);
-//     prof_raw_ep_vs_p_iso->Draw("E1");
-//     c5->SaveAs("plots/iso_raw_ep_vs_p.png");
-//     delete c5;
-
-//     prof_raw_ep_vs_p_iso_custom->GetXaxis()->SetTitle("p [GeV]");
-//     prof_raw_ep_vs_p_iso_custom->GetYaxis()->SetTitle("<Raw E/p>");
-//     prof_raw_ep_vs_p_iso_custom->GetYaxis()->SetRangeUser(0.0, 2.25);
-//     TCanvas *c5b = new TCanvas("c5b_iso", "<Raw E/p> vs p (isolated, custom)", 800, 600);
-//     prof_raw_ep_vs_p_iso_custom->SetLineColor(kCyan + 2); prof_raw_ep_vs_p_iso_custom->SetLineWidth(2);
-//     prof_raw_ep_vs_p_iso_custom->Draw("E1");
-//     c5b->SaveAs("plots/iso_raw_ep_vs_p_custom.png");
-//     delete c5b;
-
-//     // 2D Raw E/p
-//     h2_raw_ep_vs_p_iso->GetXaxis()->SetTitle("p [GeV]");
-//     h2_raw_ep_vs_p_iso->GetYaxis()->SetTitle("Raw E/p");
-//     h2_raw_ep_vs_p_iso->GetYaxis()->SetRangeUser(0.0, 2.25);
-//     // h2_raw_ep_vs_p_iso->GetYaxis()->SetNdivisions(45);  // ≈0.05 välein
-//     TCanvas *c6 = new TCanvas("c6_iso", "Raw E/p vs p (2D isolated)", 800, 600);
-//     h2_raw_ep_vs_p_iso->Draw("COLZ");
-//     c6->SaveAs("plots/iso_raw_ep_vs_p_2D.png");
-//     delete c6;
-
-//     file->Close();
-// }
-
 #include "TFile.h"
-#include "TH1D.h"
 #include "TH2D.h"
-#include "TProfile.h"
-#include "TF1.h"
+#include "TH3D.h"
+#include "TH1D.h"
 #include "TCanvas.h"
-#include "TLegend.h"
 #include "TStyle.h"
+#include "TF1.h"
+#include "TProfile.h"
+#include <vector>
+#include <string>
 #include <iostream>
+#include <sstream>
 
-void plot_histograms() {
-    TFile *file = TFile::Open("histograms/pion_histos_iso.root");
+// kansiopolku, johon png-kuvat tallennetaan
+std::string outdir = "plots/";
+
+// pääfunktio histogrammien plottaukseen
+void plot_histograms(const char* filename) {
+    // avataan ROOT-tiedosto ukutilassa
+    TFile* file = TFile::Open(filename, "READ");
     if (!file || file->IsZombie()) {
-        std::cerr << "ERROR: Cannot open histogram file!" << std::endl;
+        std::cerr << "Error: cannot open file " << filename << std::endl;
         return;
     }
 
-    // Histogrammit ja profiilit
-    TH1D     *h_pt_iso     = (TH1D*)file->Get("h_pt_iso");
-    TH1D     *h_eta_iso    = (TH1D*)file->Get("h_eta_iso");
-    TH1D     *h_ep_iso     = (TH1D*)file->Get("h_ep_iso");
-    TH1D     *h_raw_ep_iso = (TH1D*)file->Get("h_raw_ep_iso");
+    // väriteema 2D-ploteille
+    gStyle->SetPalette(kBird);
+    // avataan sama tiedosto kirjoitustilassa tulosten tallennusta varten
+    TFile* fout = new TFile(filename, "UPDATE");
 
-    TProfile *prof_ep_vs_p_iso            = (TProfile*)file->Get("prof_ep_vs_p_iso");
-    TProfile *prof_ep_vs_p_iso_custom     = (TProfile*)file->Get("prof_ep_vs_p_iso_custom");
-    TProfile *prof_raw_ep_vs_p_iso        = (TProfile*)file->Get("prof_raw_ep_vs_p_iso");
-    TProfile *prof_raw_ep_vs_p_iso_custom = (TProfile*)file->Get("prof_raw_ep_vs_p_iso_custom");
+    // lista histogrammeista, jotka piirretään suoraan
+    std::vector<std::string> histNames = {
+        "h2_ep_vs_p_iso", "h2_raw_ep_vs_p_iso",
+        "prof_ep_vs_p_iso", "prof_raw_ep_vs_p_iso",
+        "prof_ep_vs_p_iso_custom", "prof_raw_ep_vs_p_iso_custom",
+        "h_pt_iso", "h_eta_iso", "h_ep_iso", "h_raw_ep_iso",
+        "h_ep_isHadH", "h_ep_isHadE", "h_ep_isHadMIP", "h_ep_isHadEH",
+        "h_raw_ep_isHadH", "h_raw_ep_isHadE", "h_raw_ep_isHadMIP", "h_raw_ep_isHadEH"
+    };
 
-    TH2D *h2_ep_vs_p_iso     = (TH2D*)file->Get("h2_ep_vs_p_iso");
-    TH2D *h2_raw_ep_vs_p_iso = (TH2D*)file->Get("h2_raw_ep_vs_p_iso");
+    // käydään histogrammit läpi
+    for (const auto& name : histNames) {
+        TObject* obj = file->Get(name.c_str());
+        if (!obj) continue;
 
-    if (!h_pt_iso || !h_eta_iso || !h_ep_iso || !h_raw_ep_iso ||
-        !prof_ep_vs_p_iso || !prof_ep_vs_p_iso_custom ||
-        !prof_raw_ep_vs_p_iso || !prof_raw_ep_vs_p_iso_custom ||
-        !h2_ep_vs_p_iso || !h2_raw_ep_vs_p_iso) {
-        std::cerr << "ERROR: One or more histograms or profiles not found in file!" << std::endl;
-        return;
+        // luodaan canvas jokaiselle histogrammille
+        TCanvas* c = new TCanvas(("canvas_" + name).c_str(), name.c_str(), 800, 600);
+
+        // 2D-histogrammit (esim. E/p vs p)
+        if (auto* h2 = dynamic_cast<TH2*>(obj)) {
+            h2->GetXaxis()->SetTitle("Track momentum p (GeV)");
+            h2->GetYaxis()->SetTitle((name.find("raw") != std::string::npos) ? "Raw E/p" : "E/p");
+            h2->SetTitle((name.find("raw") != std::string::npos) ? "Raw E/p vs p" : "E/p vs p");
+            h2->Draw("COLZ");
+
+        // 1D-histogrammit
+        } else if (auto* h1 = dynamic_cast<TH1*>(obj)) {
+            h1->GetXaxis()->SetTitle("E/p");
+            h1->GetYaxis()->SetTitle("Events");
+            h1->SetTitle(name.c_str());
+            h1->Draw("HIST");
+
+        // profiilit (keskiarvo E/p vs p)
+        } else if (auto* prof = dynamic_cast<TProfile*>(obj)) {
+            prof->GetXaxis()->SetTitle("Track momentum p (GeV)");
+            prof->GetYaxis()->SetTitle("Mean E/p");
+            prof->SetTitle("Mean E/p vs p");
+            prof->Draw();
+        }
+
+        // tallennetaan kuva png:nä ja canvas ROOT-tiedostoon
+        c->SaveAs((outdir + name + ".png").c_str());
+        c->Write();
     }
 
-    // Perushistogrammit
-    h_pt_iso->GetXaxis()->SetTitle("p_{T} [GeV]");
-    h_pt_iso->GetYaxis()->SetTitle("Entries");
-    h_eta_iso->GetXaxis()->SetTitle("#eta");
-    h_eta_iso->GetYaxis()->SetTitle("Entries");
-    h_ep_iso->GetXaxis()->SetTitle("(E_{ECAL}+E_{HCAL}) / p");
-    h_ep_iso->GetYaxis()->SetTitle("Entries");
+    // hadronityypit ja niihin liittyvät tunnisteet sekä nimeämiset
+    std::vector<std::string> hadronTypes = {"isHadH", "isHadE", "isHadMIP", "isHadEH"};
+    std::vector<std::string> labels = {"HCAL only", "ECAL only", "MIP", "ECAL+HCAL"};
+    std::vector<std::pair<double, double>> ptRanges = {{5.5, 6.0}, {10.0, 12.0}, {20.0, 22.0}};
+    std::vector<std::string> ptTags = {"low", "medium", "high"};
 
-    TCanvas *c1 = new TCanvas("c1_iso", "Basic isolated pion histograms", 1200, 900);
-    c1->Divide(1, 3);
-    c1->cd(1); gPad->SetLogy(); h_pt_iso->Draw();
-    c1->cd(2); h_eta_iso->Draw();
-    c1->cd(3); h_ep_iso->Draw();
-    c1->SaveAs("plots/isolated_pions.png");
-    delete c1;
+    // käydään läpi jokianen hadronityyppi ja pT-alue
+    for (size_t i = 0; i < hadronTypes.size(); ++i) {
+        std::string name3d = "h3_resp_corr_p_" + hadronTypes[i];
+        TH3D* h3 = dynamic_cast<TH3D*>(file->Get(name3d.c_str()));
+        if (!h3) continue;
 
-    // Profiilit
-    prof_ep_vs_p_iso->GetXaxis()->SetTitle("p [GeV]");
-    prof_ep_vs_p_iso->GetYaxis()->SetTitle("<E/p>");
-    TCanvas *c2 = new TCanvas("c2_iso", "<E/p> vs p (isolated)", 800, 600);
-    prof_ep_vs_p_iso->SetLineColor(kBlue); prof_ep_vs_p_iso->SetLineWidth(2);
-    prof_ep_vs_p_iso->Draw("E1");
-    c2->SaveAs("plots/iso_ep_vs_p.png");
-    delete c2;
+        for (size_t j = 0; j < ptRanges.size(); ++j) {
+            double pmin = ptRanges[j].first;
+            double pmax = ptRanges[j].second;
 
-    prof_ep_vs_p_iso_custom->GetXaxis()->SetTitle("p [GeV]");
-    prof_ep_vs_p_iso_custom->GetYaxis()->SetTitle("<E/p>");
-    TCanvas *c2b = new TCanvas("c2b_iso", "<E/p> vs p (isolated, custom)", 800, 600);
-    prof_ep_vs_p_iso_custom->SetLineColor(kOrange + 1); prof_ep_vs_p_iso_custom->SetLineWidth(2);
-    c2b->SetLogx();  // <-- x-akseli logaritmiseksi
-    prof_ep_vs_p_iso_custom->Draw("E1");
-    c2b->SaveAs("plots/iso_ep_vs_p_custom.png");
-    delete c2b;
+            h3->GetZaxis()->SetRange(h3->GetZaxis()->FindBin(pmin + 1e-3),
+                                     h3->GetZaxis()->FindBin(pmax - 1e-3));
+            auto proj2D = dynamic_cast<TH2D*>(h3->Project3D("xy"));
+            std::string proj2D_name = name3d + "_proj2D_" + ptTags[j];
 
-    // 2D E/p vs p
-    h2_ep_vs_p_iso->GetXaxis()->SetTitle("p [GeV]");
-    h2_ep_vs_p_iso->GetYaxis()->SetTitle("E/p");
-    h2_ep_vs_p_iso->GetYaxis()->SetRangeUser(0.01, 2.25);
-    TCanvas *c3 = new TCanvas("c3_iso", "E/p vs p (2D isolated)", 800, 600);
-    gStyle->SetOptStat(0);
-    gPad->SetLogx();  // Logaritminen pT-akseli
-    gStyle->SetNumberContours(50); // pehmeämpi väritoteutus
-    h2_ep_vs_p_iso->Draw("COLZ");
-    c3->SaveAs("plots/iso_ep_vs_p_2D.png");
-    delete c3;
+            proj2D->SetName(proj2D_name.c_str());
+            proj2D->SetMinimum(1e-6);
+            proj2D->SetTitle(Form("E/p vs E_{HCAL}/E_{HCAL}^{raw}, %s (%.1f–%.1f GeV)", labels[i].c_str(), pmin, pmax));
+            proj2D->GetXaxis()->SetTitle("E_{HCAL}/E_{HCAL}^{raw}");
+            proj2D->GetYaxis()->SetTitle("E/p");
 
-// ===================== E/p PROJEKTIOT ============================
-std::vector<std::pair<double, double>> pBins = {
-    {5.5, 6.0},
-    {6.0, 7.0},
-    {7.0, 8.0},
-    {8.0, 9.0},
-    {20.0, 22.0}
-};
+            TCanvas* c2D = new TCanvas(("canvas_" + proj2D_name).c_str(), proj2D_name.c_str(), 800, 600);
+            proj2D->Draw("COLZ");
+            c2D->SaveAs((outdir + proj2D_name + ".png").c_str());
+            proj2D->Write();
+            c2D->Write();
+        }
+    }
 
-for (const auto& [pmin, pmax] : pBins) {
-    int bin_min = h2_ep_vs_p_iso->GetXaxis()->FindBin(pmin + 1e-3);
-    int bin_max = h2_ep_vs_p_iso->GetXaxis()->FindBin(pmax - 1e-3);
-    std::stringstream name;
-    name << "proj_ep_" << int(pmin * 10) << "_" << int(pmax * 10);
+    // E/p-jakaumat tietyillä p-alueilla, fitataan Gaussin käyrä
+    std::vector<std::pair<double, double>> pBins = {{5.5, 6.0}, {20.0, 22.0}};
+    TH2D* h2_ep = dynamic_cast<TH2D*>(file->Get("h2_ep_vs_p_iso"));
+    TH2D* h2_raw = dynamic_cast<TH2D*>(file->Get("h2_raw_ep_vs_p_iso"));
 
-    TH1D* proj = h2_ep_vs_p_iso->ProjectionY(name.str().c_str(), bin_min, bin_max);
-    if (proj->Integral() == 0) continue;
-    proj->Scale(1.0 / proj->Integral());
+    if (h2_ep && h2_raw) {
+        for (const auto& [pmin, pmax] : pBins) {
+            int bin_min = h2_ep->GetXaxis()->FindBin(pmin + 1e-3);
+            int bin_max = h2_ep->GetXaxis()->FindBin(pmax - 1e-3);
 
-    proj->SetLineColor(kBlack);
-    proj->SetLineWidth(2);
-    proj->SetFillColorAlpha(kAzure + 1, 0.5);  // Sininen täyttö
+            std::stringstream sn, sr;
+            sn << "proj_ep_" << int(pmin * 10) << "_" << int(pmax * 10);
+            sr << "proj_raw_ep_" << int(pmin * 10) << "_" << int(pmax * 10);
 
-    proj->SetTitle("");
-    proj->GetXaxis()->SetTitle("E/p");
-    proj->GetYaxis()->SetTitle("Fraction of particles");
+            auto proj_n = h2_ep->ProjectionY(sn.str().c_str(), bin_min, bin_max);
+            auto proj_r = h2_raw->ProjectionY(sr.str().c_str(), bin_min, bin_max);
 
-    TCanvas* c = new TCanvas((name.str() + "_canvas").c_str(), name.str().c_str(), 800, 600);
-    proj->Draw("HIST");
+            if (proj_n->Integral() > 0) {
+                proj_n->Scale(1.0 / proj_n->Integral());
+                TF1* fit_n = new TF1((sn.str() + "_fit").c_str(), "gaus", 0.0, 2.5);
+                proj_n->Fit(fit_n, "RQ", "", 0.7, 1.2);
 
-    // Gaussian-sovitus
-    TF1* fit = new TF1("fit", "gaus", 0.0, 2.3); // voit säätää rangea
-    proj->Fit(fit, "R");  // R = fit only in range
-    fit->SetLineColor(kRed);
-    fit->SetLineWidth(2);
-    fit->Draw("same");
+                proj_n->SetTitle(Form("E/p in %.1f <= p < %.1f GeV", pmin, pmax));
+                proj_n->GetXaxis()->SetTitle("E/p");
+                proj_n->GetYaxis()->SetTitle("Fraction of particles");
 
-    // Latex-otsikko
-    TLatex latex;
-    latex.SetNDC();
-    latex.SetTextSize(0.04);
-    latex.DrawLatex(0.15, 0.92, Form("E/p in %.1f <= p < %.1f GeV", pmin, pmax));
+                TCanvas* c_n = new TCanvas(("canvas_" + sn.str()).c_str(), sn.str().c_str(), 800, 600);
+                proj_n->SetFillColorAlpha(kBlue, 0.35);
+                proj_n->Draw("hist");
+                fit_n->SetLineColor(kRed);
+                fit_n->Draw("same");
+                c_n->SaveAs((outdir + sn.str() + ".png").c_str());
+                c_n->Write();
+            }
 
-    c->SaveAs(("plots/" + name.str() + ".png").c_str());
-    delete c;
+            if (proj_r->Integral() > 0) {
+                proj_r->Scale(1.0 / proj_r->Integral());
+                TF1* fit_r = new TF1((sr.str() + "_fit").c_str(), "gaus", 0.0, 2.5);
+                proj_r->Fit(fit_r, "RQ", "", 0.7, 1.2);
+
+                proj_r->SetTitle(Form("Raw E/p in %.1f <= p < %.1f GeV", pmin, pmax));
+                proj_r->GetXaxis()->SetTitle("Raw E/p");
+                proj_r->GetYaxis()->SetTitle("Fraction of particles");
+
+                TCanvas* c_r = new TCanvas(("canvas_" + sr.str()).c_str(), sr.str().c_str(), 800, 600);
+                proj_r->SetFillColorAlpha(kBlue, 0.35);
+                proj_r->Draw("hist");
+                fit_r->SetLineColor(kRed);
+                fit_r->Draw("same");
+                c_r->SaveAs((outdir + sr.str() + ".png").c_str());
+                c_r->Write();
+            }
+        }
+    }
+
+    // suljetaan tiedostot
+    fout->Close();
+    file->Close();
 }
 
-
-    // Raw E/p histogrammi
-    h_raw_ep_iso->GetXaxis()->SetTitle("Raw (E_{ECAL}+E_{HCAL}) / p");
-    h_raw_ep_iso->GetYaxis()->SetTitle("Entries");
-    TCanvas *c4 = new TCanvas("c4_iso", "Raw E/p histogram (isolated)", 800, 600);
-    h_raw_ep_iso->SetLineColor(kMagenta + 1);
-    h_raw_ep_iso->Draw();
-    c4->SaveAs("plots/iso_raw_ep_hist.png");
-    delete c4;
-
-    // Raaka profiilit
-    prof_raw_ep_vs_p_iso->GetXaxis()->SetTitle("p [GeV]");
-    prof_raw_ep_vs_p_iso->GetYaxis()->SetTitle("<Raw E/p>");
-    // prof_raw_ep_vs_p_iso->GetYaxis()->SetRangeUser(0.0, 2.25);
-    TCanvas *c5 = new TCanvas("c5_iso", "<Raw E/p> vs p (isolated)", 800, 600);
-    prof_raw_ep_vs_p_iso->SetLineColor(kGreen + 2); prof_raw_ep_vs_p_iso->SetLineWidth(2);
-    prof_raw_ep_vs_p_iso->Draw("E1");
-    c5->SaveAs("plots/iso_raw_ep_vs_p.png");
-    delete c5;
-
-    prof_raw_ep_vs_p_iso_custom->GetXaxis()->SetTitle("p [GeV]");
-    prof_raw_ep_vs_p_iso_custom->GetYaxis()->SetTitle("<Raw E/p>");
-    // prof_raw_ep_vs_p_iso_custom->GetYaxis()->SetRangeUser(0.0, 2.25);
-    TCanvas *c5b = new TCanvas("c5b_iso", "<Raw E/p> vs p (isolated, custom)", 800, 600);
-    prof_raw_ep_vs_p_iso_custom->SetLineColor(kCyan + 2); prof_raw_ep_vs_p_iso_custom->SetLineWidth(2);
-    c5b->SetLogx();  // <-- x-akseli logaritmiseksi
-    prof_raw_ep_vs_p_iso_custom->Draw("E1");
-    c5b->SaveAs("plots/iso_raw_ep_vs_p_custom.png");
-    delete c5b;
-
-    // 2D Raw E/p
-    h2_raw_ep_vs_p_iso->GetXaxis()->SetTitle("p [GeV]");
-    h2_raw_ep_vs_p_iso->GetYaxis()->SetTitle("Raw E/p");
-    h2_raw_ep_vs_p_iso->GetYaxis()->SetRangeUser(0.01, 2.25);
-    TCanvas *c6 = new TCanvas("c6_iso", "Raw E/p vs p (2D isolated)", 800, 600);
-    gPad->SetLogx();  // Logaritminen pT-akseli
-    h2_raw_ep_vs_p_iso->Draw("COLZ");
-    c6->SaveAs("plots/iso_raw_ep_vs_p_2D.png");
-    delete c6;
-
-    // 2D Raw E/p (zoomattu y-akseli)
-    // h2_raw_ep_vs_p_iso->GetXaxis()->SetTitle("p_{T} [GeV]");
-    // h2_raw_ep_vs_p_iso->GetYaxis()->SetTitle("Raw E/p");
-    // h2_raw_ep_vs_p_iso->GetYaxis()->SetRangeUser(0.00, 0.5);  // <-- TÄMÄ MUUTTUU
-    // TCanvas *c6 = new TCanvas("c6_iso", "Raw E/p vs p (2D isolated)", 800, 600);
-    // gPad->SetLogx();  // Logaritminen pT-akseli
-    // gStyle->SetNumberContours(999); // pehmeämpi väritoteutus
-    // h2_raw_ep_vs_p_iso->Draw("COLZ");
-    // c6->SaveAs("plots/iso_raw_ep_vs_p_2D.png");
-    // delete c6;
-
-
-    file->Close();
+// pääohjelma, joka ottaa ROOT-tiedoston nimen argumenttina
+int main(int argc, char** argv) {
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <histogram_file.root>" << std::endl;
+        return 1;
+    }
+    plot_histograms(argv[1]);
+    return 0;
 }
