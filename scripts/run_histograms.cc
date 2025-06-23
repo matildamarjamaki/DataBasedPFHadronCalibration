@@ -1,5 +1,4 @@
 
-// run_histograms_optimized.cc
 #include "ROOT/RDataFrame.hxx"
 #include "TFile.h"
 #include "TH1F.h"
