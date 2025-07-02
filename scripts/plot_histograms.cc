@@ -357,7 +357,7 @@ void plot_histograms(const char* filename) {
 
             // Piirto ja tallennus
             TCanvas* c = new TCanvas(("canvas_" + projName).c_str(), "", 800, 600);
-            hproj->SetTitle(Form("E/p (HCAL only), %.1f–%.1f GeV", pmin, pmax));
+            hproj->SetTitle(Form("E/p (HCAL only), %.1f-%.1f GeV", pmin, pmax));
             hproj->GetXaxis()->SetTitle("E/p");
             hproj->GetYaxis()->SetTitle("Fraction of particles");
             hproj->Draw("HIST");
