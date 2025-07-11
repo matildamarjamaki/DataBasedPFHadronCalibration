@@ -178,17 +178,66 @@ void run_histograms(const char* listfile, const char* tag) {
                      "response", "hcalCorrFactor", "pIso"));
     }
 
-    // kirjoitetaan kaikki histogrammit ROOT-tiedostoon
-    std::string filename = "histograms/" + std::string(tag) + ".root";
-    TFile out(filename.c_str(), "RECREATE");
+// kirjoitetaan kaikki histogrammit ROOT-tiedostoon
+std::string filename = "histograms/" + std::string(tag) + ".root";
+TFile out(filename.c_str(), "RECREATE");
 
-    for (auto& h : h1_histos) h->Write();
-    for (auto& h : h2_histos) h->Write();
-    for (auto& h : h3_histos) h->Write();
-    for (auto& p : profiles)  p->Write();
-    out.Close();
+// määritellään maskit float-muodossa fraktioprofiileja varten
+// auto df_frac = df_cut
+//     .Define("isHadH_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadH) v.push_back(x ? 1.0f : 0.0f); return v;")
+//     .Define("isHadE_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadE) v.push_back(x ? 1.0f : 0.0f); return v;")
+//     .Define("isHadMIP_float", "ROOT::VecOps::RVec<float> v; for (auto x : isHadMIP) v.push_back(x ? 1.0f : 0.0f); return v;")
+//     .Define("isHadEH_float",  "ROOT::VecOps::RVec<float> v; for (auto x : isHadEH) v.push_back(x ? 1.0f : 0.0f); return v;");
 
-    // tulostetaan kokonaisajankesto
-    auto end = std::chrono::high_resolution_clock::now();
-    std::cout << "Elapsed time: " << std::chrono::duration<double>(end - start).count() << " s\n";
+
+
+auto df_frac = df_iso
+    .Define("isHadH_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadH) v.push_back(x ? 1.0f : 0.0f); return v;")
+    .Define("isHadE_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadE) v.push_back(x ? 1.0f : 0.0f); return v;")
+    .Define("isHadMIP_float", "ROOT::VecOps::RVec<float> v; for (auto x : isHadMIP) v.push_back(x ? 1.0f : 0.0f); return v;")
+    .Define("isHadEH_float",  "ROOT::VecOps::RVec<float> v; for (auto x : isHadEH) v.push_back(x ? 1.0f : 0.0f); return v;");
+
+
+
+
+// lisätään fraktioprofiilit hadronityypeittäin
+profiles.push_back(df_frac.Profile1D({
+    "h_frac_H", "Fraction: HCAL only; p (GeV); Fraction", nTrkPBins, trkPBins
+}, "pIso", "isHadH_float"));
+
+profiles.push_back(df_frac.Profile1D({
+    "h_frac_E", "Fraction: ECAL only; p (GeV); Fraction", nTrkPBins, trkPBins
+}, "pIso", "isHadE_float"));
+
+profiles.push_back(df_frac.Profile1D({
+    "h_frac_MIP", "Fraction: MIP; p (GeV); Fraction", nTrkPBins, trkPBins
+}, "pIso", "isHadMIP_float"));
+
+profiles.push_back(df_frac.Profile1D({
+    "h_frac_EH", "Fraction: ECAL+HCAL; p (GeV); Fraction", nTrkPBins, trkPBins
+}, "pIso", "isHadEH_float"));
+
+// nyt kerätään kaikki histogrammit evaluointia varten
+std::vector<ROOT::RDF::RResultHandle> handles;
+for (auto& h : h1_histos) handles.push_back(h);
+for (auto& h : h2_histos) handles.push_back(h);
+for (auto& h : h3_histos) handles.push_back(h);
+for (auto& p : profiles)  handles.push_back(p);
+ROOT::RDF::RunGraphs(handles);
+
+// kirjoitetaan tallennetut histogrammit
+for (auto& h : h1_histos) h->Write();
+for (auto& h : h2_histos) h->Write();
+for (auto& h : h3_histos) h->Write();
+for (auto& p : profiles)  p->Write();
+
+out.Close();
+
+// tulostetaan kokonaisajankesto
+auto end = std::chrono::high_resolution_clock::now();
+std::cout << "Elapsed time: " << std::chrono::duration<double>(end - start).count() << " s\n";
+
+
+
+
 }

@@ -100,3 +100,9 @@ bash
 hadd ParkingDoubleMuon_Run2024F.root histograms/pion_histos_iso_Run2024F_LowMass*.root
 ```
 hadd histograms/ParkingDoubleMuon_Run2024F.root histograms/pion_histos_iso_Run2024F_LowMass*.root
+
+
+
+
+
+hadd ZeroBias2024all.root ZeroBias2024C.root ZeroBias2024D.root ZeroBias2024E.root ZeroBias2024F.root ZeroBias2024G.root ZeroBias2024H.root ZeroBias2024I.root ZeroBias2024I_v1.root ZeroBias2024I_v2.root

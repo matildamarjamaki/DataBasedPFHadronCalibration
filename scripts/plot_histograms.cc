@@ -13,22 +13,33 @@
 #include <iostream>
 #include <sstream>
 
+
 // polku, johon tallennetaan png-kuvat jokaisesta plottauksesta
-std::string outdir = "plots/";
+std::string outdir = "plots/Data_ZeroBias2024";
 
 // pääfunktio; lukee ROOT-tiedoston, piirtää histogrammit ja tallentaa kuvat
 void plot_histograms(const char* filename) {
     // avataan ROOT-tiedosto ukutilassa
-    TFile* file = TFile::Open(filename, "READ");
+    TFile* file = TFile::Open(filename, "READ"); 
     if (!file || file->IsZombie()) {
         std::cerr << "Error: cannot open file " << filename << std::endl;
         return;
     }
 
+    auto h3_H   = dynamic_cast<TH3D*>(file->Get("h3_resp_corr_p_isHadH"));
+    auto h3_E   = dynamic_cast<TH3D*>(file->Get("h3_resp_corr_p_isHadE"));
+    auto h3_MIP = dynamic_cast<TH3D*>(file->Get("h3_resp_corr_p_isHadMIP"));
+    auto h3_EH  = dynamic_cast<TH3D*>(file->Get("h3_resp_corr_p_isHadEH"));
+
     // väriteema 2D-ploteille
     gStyle->SetPalette(kBird);
     // avataan sama tiedosto kirjoitustilassa tulosten tallennusta varten
     TFile* fout = new TFile(filename, "UPDATE");
+    fout->cd();
+
+    // Luo output-hakemisto kuville
+    std::string outdir = "plots/Data_ZeroBias2024/";
+    gSystem->mkdir(outdir.c_str(), true);
 
     // lista histogramminimistä, jotka piirretään suoraan
     std::vector<std::string> histNames = {
@@ -312,6 +323,76 @@ void plot_histograms(const char* filename) {
 
 
 
+    // --- E/p distributions per hadron type, all pT bins, no stack, no overlay ---
+    const double trkPBins_full[] = {
+        3.0, 3.3, 3.6, 3.9, 4.2, 4.6, 5.0, 5.5, 6.0, 6.6,
+        7.2, 7.9, 8.6, 9.3, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
+        16.5, 18.0, 20.0, 22.0, 25.0, 30.0, 35.0, 40.0, 45.0, 55.0, 70.0, 130.0
+    };
+    const int nTrkPBins_full = sizeof(trkPBins_full) / sizeof(double) - 1;
+
+    std::vector<std::pair<std::string, std::string>> hadronTypesWithLabel = {
+        {"isHadH", "HCALonly"},
+        {"isHadE", "ECALonly"},
+        {"isHadMIP", "MIP"},
+        {"isHadEH", "ECALHCAL"}
+    };
+
+    gStyle->SetOptFit(111); // näyttää fit-parametrit kuvassa
+    for (const auto& [type, label] : hadronTypesWithLabel) {
+        TH3D* h3 = dynamic_cast<TH3D*>(file->Get(("h3_resp_corr_p_" + type).c_str()));
+        if (!h3) continue;
+
+        // HCAL correction cut: 0.9 < E_HCAL / E_HCAL^raw < 2.5
+        int y_min = h3->GetYaxis()->FindBin(0.9001);
+        int y_max = h3->GetYaxis()->FindBin(2.4999);
+
+        for (int i = 0; i < nTrkPBins_full; ++i) {
+            double pmin = trkPBins_full[i];
+            double pmax = trkPBins_full[i + 1];
+
+            int z_min = h3->GetZaxis()->FindBin(pmin + 1e-3);
+            int z_max = h3->GetZaxis()->FindBin(pmax - 1e-3);
+
+            std::string projName = Form("proj_ep_%s_bin_%d", label.c_str(), i);
+            TH1D* hproj = h3->ProjectionX(projName.c_str(), y_min, y_max, z_min, z_max);
+            if (!hproj || hproj->Integral() == 0) continue;
+
+            hproj->Scale(1.0 / hproj->Integral());
+
+            TCanvas* c = new TCanvas(("canvas_" + projName).c_str(), "", 800, 600);
+            hproj->SetTitle(Form("E/p (%s), %.1f-%.1f GeV", label.c_str(), pmin, pmax));
+            hproj->GetXaxis()->SetTitle("E/p");
+            hproj->GetYaxis()->SetTitle("Fraction of particles");
+            hproj->SetLineColor(kBlue + 2);
+
+            // Luo uniikki fit-nimi
+            std::string fitName = "fit_" + projName;
+            TF1* fit = new TF1(fitName.c_str(), "gaus(0) + gaus(3) + gaus(6)", 0.3, 2.0);
+            fit->SetParameters(0.2, 0.8, 0.1, 0.1, 1.0, 0.1, 0.05, 1.3, 0.2);
+            fit->SetLineColor(kRed);
+            fit->SetLineWidth(2);
+
+            // Fit ja piirto
+            hproj->Fit(fit, "RQ");
+            hproj->Draw("HIST");
+
+            TF1* fit_result = hproj->GetFunction(fitName.c_str());
+            if (fit_result) {
+                fit_result->SetLineColor(kRed);
+                fit_result->SetLineWidth(2);
+                fit_result->Draw("SAME");
+            }
+
+            c->SaveAs((outdir + projName + ".png").c_str());
+            c->Write();
+
+
+        }
+
+        h3->GetYaxis()->UnZoom();
+        h3->GetZaxis()->UnZoom();
+    }
 
 
 
@@ -322,7 +403,15 @@ void plot_histograms(const char* filename) {
 
 
 
-    // automaattinen kaikkien pT-biinien plottaus (HCAL only)
+
+
+
+
+
+
+
+
+    // --- STACKED E/p DISTRIBUTIONS FOR EACH pT BIN ---
     const double trkPBins[] = {
         3.0, 3.3, 3.6, 3.9, 4.2, 4.6, 5.0, 5.5, 6.0, 6.6,
         7.2, 7.9, 8.6, 9.3, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
@@ -330,52 +419,257 @@ void plot_histograms(const char* filename) {
     };
     const int nTrkPBins = sizeof(trkPBins) / sizeof(double) - 1;
 
-    TH3D* h3_H = dynamic_cast<TH3D*>(file->Get("h3_resp_corr_p_isHadH"));
-    if (h3_H) {
+    if (h3_H && h3_E && h3_MIP && h3_EH) {
         int y_min = h3_H->GetYaxis()->FindBin(0.9001);
         int y_max = h3_H->GetYaxis()->FindBin(2.4999);
 
+        // for (int i = 0; i < nTrkPBins; ++i) {
+        //     double pmin = trkPBins[i];
+        //     double pmax = trkPBins[i + 1];
+
+        //     int z_min = h3_H->GetZaxis()->FindBin(pmin + 1e-3);
+        //     int z_max = h3_H->GetZaxis()->FindBin(pmax - 1e-3);
+
+        //     // Projektiot
+        //     TH1D* h_H   = h3_H  ? h3_H->ProjectionX(Form("h_H_%d", i), y_min, y_max, z_min, z_max) : nullptr;
+        //     TH1D* h_E   = h3_E  ? h3_E->ProjectionX(Form("h_E_%d", i), y_min, y_max, z_min, z_max) : nullptr;
+        //     TH1D* h_MIP = h3_MIP? h3_MIP->ProjectionX(Form("h_MIP_%d", i), y_min, y_max, z_min, z_max) : nullptr;
+        //     std::cout << "pT bin " << i << ": MIP integral = " << (h_MIP ? h_MIP->Integral() : -1) << std::endl;
+
+        //     TH1D* h_EH  = h3_EH ? h3_EH->ProjectionX(Form("h_EH_%d", i), y_min, y_max, z_min, z_max) : nullptr;
+
+            // Luo THStack
+            // THStack* stack = new THStack(Form("stack_%d", i), Form("E/p stack, %.1f-%.1f GeV;E/p;Fraction", pmin, pmax));
+
+            // Laske kokonaismäärä ennen skaalausta
+            // double total = 0.0;
+            // if (h_H)   total += h_H->Integral();
+            // if (h_E)   total += h_E->Integral();
+            // if (h_MIP) total += h_MIP->Integral();
+            // if (h_EH)  total += h_EH->Integral();
+
+            // if (total == 0) continue; // Vältä jako nollalla
+
+            // // Skaalaa kaikki suhteessa kokonaissummaan
+            // if (h_H)   h_H->Scale(1.0 / total);
+            // if (h_E)   h_E->Scale(1.0 / total);
+            // if (h_MIP) h_MIP->Scale(1.0 / total);
+            // if (h_EH)  h_EH->Scale(1.0 / total);
+
+            // // Värit ja lisäys stackiin
+            // std::vector<std::pair<TH1D*, Color_t>> hists = {
+            //     {h_H, kRed + 1}, {h_E, kBlue + 1}, {h_MIP, kGreen + 2}, {h_EH, kMagenta + 2}
+            // };
+
+            // for (auto& [h, color] : hists) {
+            //     if (!h) continue;
+            //     h->SetFillColor(color);
+            //     h->SetLineColor(kBlack);
+            //     stack->Add(h);
+            // }
+
+
+
+        // Laske kokonaismäärä
         for (int i = 0; i < nTrkPBins; ++i) {
             double pmin = trkPBins[i];
             double pmax = trkPBins[i + 1];
-            double pmid = 0.5 * (pmin + pmax);
 
             int z_min = h3_H->GetZaxis()->FindBin(pmin + 1e-3);
             int z_max = h3_H->GetZaxis()->FindBin(pmax - 1e-3);
+            
+            // ... tästä eteenpäin pysyy samana
+            TH1D* h_H   = h3_H  ? h3_H->ProjectionX(Form("h_H_%d", i), y_min, y_max, z_min, z_max) : nullptr;
+            TH1D* h_E   = h3_E  ? h3_E->ProjectionX(Form("h_E_%d", i), y_min, y_max, z_min, z_max) : nullptr;
+            TH1D* h_MIP = h3_MIP? h3_MIP->ProjectionX(Form("h_MIP_%d", i), y_min, y_max, z_min, z_max) : nullptr;
+            TH1D* h_EH  = h3_EH ? h3_EH->ProjectionX(Form("h_EH_%d", i), y_min, y_max, z_min, z_max) : nullptr;
+            
+            // Laske kokonaissumma
+            double total = 0.0;
+                if (h_H)   total += h_H->Integral();
+                if (h_E)   total += h_E->Integral();
+                if (h_MIP) total += h_MIP->Integral();
+                if (h_EH)  total += h_EH->Integral();
+                if (total == 0) continue;
 
-            std::string projName = Form("proj_resp_cut_bin_%d", i);
-            TH1D* hproj = h3_H->ProjectionX(projName.c_str(), y_min, y_max, z_min, z_max);
+                // Luo stack tässä
+                THStack* stack = new THStack(Form("stack_%d", i), Form("E/p stack, %.1f-%.1f GeV;E/p;Fraction", pmin, pmax));
 
-            if (!hproj || hproj->Integral() == 0) {
-                std::cout << "[INFO] Skipping empty bin: " << pmin << "-" << pmax << " GeV" << std::endl;
-                continue;
+                // Värit + skaalaus
+                std::vector<std::pair<TH1D*, Color_t>> hists = {
+                   {h_MIP, kGreen + 2}, {h_H, kRed + 1}, {h_E, kBlue + 1}, {h_EH, kMagenta + 2}
+                };
+
+                for (auto& [h, color] : hists) {
+                    if (!h || h->Integral() == 0) continue;
+                    h->Scale(1.0 / total);
+                    h->SetFillColor(color);
+                    h->SetLineColor(kBlack);
+                    stack->Add(h);
+                    std::cout << "pT bin " << i << ": Adding " << h->GetName() << ", scaled integral = " << h->Integral() << std::endl;
+                }
+
+                // Piirto ja tallennus
+                TCanvas* c = new TCanvas(Form("canvas_stack_%d", i), "", 800, 600);
+                stack->Draw("HIST");
+                TLegend* leg = new TLegend(0.7, 0.65, 0.88, 0.88);
+                leg->AddEntry((TObject*)0, Form("p_{T} = %.1f-%.1f GeV", pmin, pmax), "");
+                leg->AddEntry(h_H, "HCAL only", "f");
+                leg->AddEntry(h_E, "ECAL only", "f");
+                leg->AddEntry(h_MIP, "MIP", "f");
+                leg->AddEntry(h_EH, "ECAL+HCAL", "f");
+                leg->Draw();
+                c->SaveAs((outdir + Form("/stack_ep_bin_%d.png", i)).c_str());
+                c->Write();
+
+
+
+                // fitataan
+                if (h_H && h_E && h_MIP && h_EH) {
+                TH1D* h_sum = (TH1D*)h_H->Clone(Form("h_sum_%d", i));
+                h_sum->Add(h_E);
+                h_sum->Add(h_MIP);
+                h_sum->Add(h_EH);
+                h_sum->Scale(1.0 / h_sum->Integral());
+
+                TF1* fit = new TF1(Form("fit_%d", i), "gaus(0)", 0.3, 2.0); // tai sopivampi funktio!
+                fit->SetLineColor(kBlack);
+                fit->SetLineWidth(2);
+                h_sum->Fit(fit, "RQ");
+
+                TCanvas* c_fit = new TCanvas(Form("c_fit_%d", i), "", 800, 600);
+                h_sum->SetTitle(Form("Fit to stacked E/p, %.1f-%.1f GeV", pmin, pmax));
+                h_sum->GetXaxis()->SetTitle("E/p");
+                h_sum->GetYaxis()->SetTitle("Fraction");
+                h_sum->Draw("HIST");
+                fit->Draw("SAME");
+                c_fit->SaveAs((outdir + Form("/fit_stack_bin_%d.png", i)).c_str());
+                c_fit->Write();
+                }
+
+
+
+
+
+
             }
 
-            hproj->Scale(1.0 / hproj->Integral());
-            TF1* fit = new TF1((projName + "_fit").c_str(), "gaus", 0.0, 2.5);
-            hproj->Fit(fit, "RQ");
 
-            // Piirto ja tallennus
-            TCanvas* c = new TCanvas(("canvas_" + projName).c_str(), "", 800, 600);
-            hproj->SetTitle(Form("E/p (HCAL only), %.1f-%.1f GeV", pmin, pmax));
-            hproj->GetXaxis()->SetTitle("E/p");
-            hproj->GetYaxis()->SetTitle("Fraction of particles");
-            hproj->Draw("HIST");
-            fit->SetLineColor(kRed);
-            fit->Draw("same");
-
-            // Tallennus tiedostoon
-            c->SaveAs((outdir + projName + ".png").c_str());
-            c->Write();
-            hproj->Write();
-            fit->Write();
-        }
-
-        // Reset zoom
         h3_H->GetYaxis()->UnZoom();
         h3_H->GetZaxis()->UnZoom();
     }
 
+
+
+
+
+    // UUSI !!!!!!!!!!!!!!!!!!!!
+
+
+    // --- Fraktiopiirto: eri hadronityyppien osuus pT:n funktiona ---
+    TCanvas* c_frac = new TCanvas("c_frac", "Hadron type fraction vs p", 800, 600);
+    auto h_frac_H   = dynamic_cast<TH1D*>(file->Get("h_frac_H"));
+    auto h_frac_E   = dynamic_cast<TH1D*>(file->Get("h_frac_E"));
+    auto h_frac_MIP = dynamic_cast<TH1D*>(file->Get("h_frac_MIP"));
+    auto h_frac_EH  = dynamic_cast<TH1D*>(file->Get("h_frac_EH"));
+
+    if (h_frac_H && h_frac_E && h_frac_MIP && h_frac_EH) {
+        // Aseta värit ja tyyli
+        h_frac_H->SetLineColor(kRed + 1);
+        h_frac_E->SetLineColor(kBlue + 1);
+        h_frac_MIP->SetLineColor(kGreen + 2);
+        h_frac_EH->SetLineColor(kMagenta + 2);
+
+        h_frac_H->SetLineWidth(2);
+        h_frac_E->SetLineWidth(2);
+        h_frac_MIP->SetLineWidth(2);
+        h_frac_EH->SetLineWidth(2);
+
+        h_frac_H->SetTitle("Hadron type fraction vs p");
+        h_frac_H->GetXaxis()->SetTitle("Track momentum p (GeV)");
+        h_frac_H->GetYaxis()->SetTitle("Fraction");
+
+        h_frac_H->SetMinimum(0.0);
+        h_frac_H->SetMaximum(1.05);
+
+        h_frac_H->Draw("HIST");
+        h_frac_E->Draw("HIST SAME");
+        h_frac_MIP->Draw("HIST SAME");
+        h_frac_EH->Draw("HIST SAME");
+
+        // Legenda
+        TLegend* leg = new TLegend(0.15, 0.68, 0.55, 0.88);
+        leg->SetTextSize(0.035);
+        leg->AddEntry(h_frac_H,   "HCAL only", "l");
+        leg->AddEntry(h_frac_E,   "ECAL only", "l");
+        leg->AddEntry(h_frac_MIP, "MIP",       "l");
+        leg->AddEntry(h_frac_EH,  "ECAL+HCAL", "l");
+        leg->Draw();
+
+        // Tallennus
+        c_frac->SaveAs((outdir + "fraction_per_type_vs_pT.png").c_str());
+        c_frac->Write();
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    std::cout << "Drawing stacked hadron fraction plot..." << std::endl;
+
+    // Luodaan uudet TH1D:t (tyhjät) samalla binityksellä
+    TH1D* h_H_bin   = new TH1D("h_H_bin", "Hadron fractions", nTrkPBins, trkPBins);
+    TH1D* h_E_bin   = new TH1D("h_E_bin", "Hadron fractions", nTrkPBins, trkPBins);
+    TH1D* h_MIP_bin = new TH1D("h_MIP_bin", "Hadron fractions", nTrkPBins, trkPBins);
+    TH1D* h_EH_bin  = new TH1D("h_EH_bin", "Hadron fractions", nTrkPBins, trkPBins);
+
+    // Täytetään binien arvot profiileista
+    for (int i = 1; i <= h_H_bin->GetNbinsX(); ++i) {
+        h_H_bin->SetBinContent(i, h_frac_H->GetBinContent(i));
+        h_E_bin->SetBinContent(i, h_frac_E->GetBinContent(i));
+        h_MIP_bin->SetBinContent(i, h_frac_MIP->GetBinContent(i));
+        h_EH_bin->SetBinContent(i, h_frac_EH->GetBinContent(i));
+    }
+
+    // Asetetaan värit
+    h_H_bin->SetFillColor(kRed);
+    h_E_bin->SetFillColor(kBlue);
+    h_MIP_bin->SetFillColor(kGreen+2);
+    h_EH_bin->SetFillColor(kMagenta);
+
+    // Luodaan stack
+    THStack* hs = new THStack("hs", "Hadron type fraction vs p;Track momentum p (GeV);Fraction");
+    hs->Add(h_E_bin);
+    hs->Add(h_MIP_bin);
+    hs->Add(h_EH_bin);
+    hs->Add(h_H_bin);
+
+    // Piirretään
+    TCanvas* c_stack = new TCanvas("c_stack_frac", "", 900, 700);
+    hs->Draw("hist");
+    hs->SetMaximum(1.05);
+    hs->GetXaxis()->SetTitleSize(0.045);
+    hs->GetYaxis()->SetTitleSize(0.045);
+
+    TLegend* leg_stack = new TLegend(0.70, 0.65, 0.88, 0.88);
+    leg_stack->AddEntry(h_H_bin, "HCAL only", "f");
+    leg_stack->AddEntry(h_E_bin, "ECAL only", "f");
+    leg_stack->AddEntry(h_MIP_bin, "MIP", "f");
+    leg_stack->AddEntry(h_EH_bin, "ECAL+HCAL", "f");
+    leg_stack->Draw();
+
+    c_stack->SaveAs((outdir + "/fraction_stacked.png").c_str());
+    c_stack->Write();
 
 
 
@@ -396,6 +690,7 @@ void plot_histograms(const char* filename) {
     // suljetaan ROOT -tiedostot
     fout->Close();
     file->Close();
+
 }
 
 // pääohjelma, joka saa ROOT-tiedoston nimen komentoriviargumenttina ja käynnistää plottauksen
