@@ -1,4 +1,7 @@
+
+// ROOT RDataFrame -kirjasto nopeaan, lazy datan käsittelyyn
 #include "ROOT/RDataFrame.hxx"
+// ROOTin histogrammi- ja tiedostokirjastot
 #include "TFile.h"
 #include "TH1F.h"
 #include "TH2D.h"
@@ -6,6 +9,7 @@
 #include "TProfile.h"
 #include "TCanvas.h"
 #include "TStyle.h"
+// C++ standardikirjastoja tiedostonkäsittelyyn, tulostukseen, datarakenteisiin ja ajastukseen
 #include <fstream>
 #include <iostream>
 #include <vector>
@@ -14,7 +18,7 @@
 #include <tuple>
 #include <chrono>
 
-// määritellään epälineaarinen binitys pionin momentille (p)
+// MÄÄRITELLÄÄN BINITYS pionien momentille (p = pT * cosh(η))
 // tarkka binitys pienillä p-arvioilla auttaa havaitsemaan responsen muutoksia
 const double trkPBins[] = {
     3.0, 3.3, 3.6, 3.9, 4.2, 4.6, 5.0, 5.5, 6.0, 6.6,
@@ -23,17 +27,18 @@ const double trkPBins[] = {
 };
 const int nTrkPBins = sizeof(trkPBins) / sizeof(double) - 1;
 
-// pääfunktio, joka tekee histogrammit ja kirjoittaa ne tiedostoon
+// PÄÄFUNKTIO: tekee histogrammit ja kirjoittaa ne tiedostoon
 void run_histograms(const char* listfile, const char* tag) {
     // aloitetaan ajanotto ajon kestolle
     auto start = std::chrono::high_resolution_clock::now();
 
+    // KÄYNNISTETÄÄN MONISÄIKEISYYS
     // otetaan ROOT-kirjaston monisäikeisyys (threads) käyttöön
     // eli ROOT käsittelee useita useita tapahtumia rinnakkain usealla
     // CPU-ytimellä nopeuttaakseen analyysia
     ROOT::EnableImplicitMT();
 
-    // luetaan ROOT-tiedostojen polut listasta
+    // LUETAAN ROOT-tiedostojen polut listasta
     // ja muodostetaan kokonaiset XRootD-osoitteet
     std::ifstream infile(listfile);
     std::string line;
@@ -45,10 +50,11 @@ void run_histograms(const char* listfile, const char* tag) {
 
     std::cout << "Processing " << files.size() << " files..." << std::endl;
 
-    // luodaan RDataFrame käyttäen "Events"-puuta useista tiedostoista
+    // LUODAAN RDataFrame käyttäen "Events"-puuta useista tiedostoista
     ROOT::RDataFrame df("Events", files);
     ROOT::RDF::Experimental::AddProgressBar(df); // näyttää etenemispalkin
 
+    // --- SUODATUS JA MUODOSTETTAVAT SUUREET ---
     // valitaan kiinnostavat hiukkaset --> ladatut, isoloidut hadronit (pdgId == +/- 211)
     auto df_iso = df
         .Define("isoMask", [](const ROOT::VecOps::RVec<int>& pdgId,
@@ -94,71 +100,78 @@ void run_histograms(const char* listfile, const char* tag) {
         .Define("rawEpIso_MIP", "ROOT::VecOps::Where(isHadMIP, rawEpIso, -1.0)")
         .Define("rawEpIso_EH", "ROOT::VecOps::Where(isHadEH, rawEpIso, -1.0)");
 
-    auto df_cut = df_iso.Filter("All(hcalCorrFactor > 0.9)", "Cut on E_HCAL/rawE_HCAL > 0.9");
 
-    // leikatut datasetit hadronityypeittäin
-    auto df_cut_H   = df_cut.Filter("Sum(isHadH) > 0");
-    auto df_cut_E   = df_cut.Filter("Sum(isHadE) > 0");
-    auto df_cut_MIP = df_cut.Filter("Sum(isHadMIP) > 0");
-    auto df_cut_EH  = df_cut.Filter("Sum(isHadEH) > 0");
 
-    // histogrammivektorit eri dimensioille
+
+
+
+    // ---- CUTTI -----
+    // RAJATAAN DATA: otetaan vain ne tapahtumat, joissa HCAL-korjaus E_HCAL / raw_E_HCAL > 0.9
+    // tämä suodattaa pois tapahtumat, joissa HCAL-kalibraatio epäonnistui pahasti
+    //auto df_cut = df_iso.Filter("All(hcalCorrFactor > 0.9)", "Cut on E_HCAL/rawE_HCAL > 0.9");
+
+    // // jaotellaan leikatut datasetit hadronityypeittäin
+    // auto df_cut_H   = df_cut.Filter("Sum(isHadH) > 0");
+    // auto df_cut_E   = df_cut.Filter("Sum(isHadE) > 0");
+    // auto df_cut_MIP = df_cut.Filter("Sum(isHadMIP) > 0");
+    // auto df_cut_EH  = df_cut.Filter("Sum(isHadEH) > 0");
+    // --- CUTIN KOMMENTOITI LOPPUU
+
+    // luodaan vektorit, joihin kerätään eri tyyppiset histogrammit
     std::vector<ROOT::RDF::RResultPtr<TH1D>> h1_histos;
     std::vector<ROOT::RDF::RResultPtr<TH2D>> h2_histos;
     std::vector<ROOT::RDF::RResultPtr<TProfile>> profiles;
     std::vector<ROOT::RDF::RResultPtr<TH3D>> h3_histos;
 
-    // 2D-histogrammit: E/p vs p ja raw E/p vs p
+    // --- 2D-HISTOGRAMMIT: E/p vs. p ja raw E/p vs p ---
     h2_histos.push_back(df_iso.Histo2D({"h2_ep_vs_p_iso", "E/p vs p; p (GeV); E/p", nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "epIso"));
     h2_histos.push_back(df_iso.Histo2D({"h2_raw_ep_vs_p_iso", "Raw E/p vs p; p (GeV); Raw E/p", nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "rawEpIso"));
+    // filteröidyllä datalla
+    //h2_histos.push_back(df_cut.Histo2D({"h2_ep_vs_p_cut", "E/p vs p (cut); p (GeV); E/p", nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "epIso"));
 
-    // uusi 2D-histo filteröidyllä datalla
-    h2_histos.push_back(df_cut.Histo2D({"h2_ep_vs_p_cut", "E/p vs p (cut); p (GeV); E/p", nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "epIso"));
-
-    // profiilit: <E/p> vs. p lineaarisella ja epälineaarisella binityksellä
+    // PROFIILIT: <E/p> vs. p lineaarisella ja epälineaarisella binityksellä
     profiles.push_back(df_iso.Profile1D({"prof_ep_vs_p_iso", "<E/p> vs p; p (GeV); E/p", 50, 0, 10}, "pIso", "epIso"));
     profiles.push_back(df_iso.Profile1D({"prof_raw_ep_vs_p_iso", "<Raw E/p> vs p; p (GeV); Raw E/p", 50, 0, 10}, "pIso", "rawEpIso"));
     profiles.push_back(df_iso.Profile1D({"prof_ep_vs_p_iso_custom", "<E/p> vs p (custom); p (GeV); E/p", nTrkPBins, trkPBins}, "pIso", "epIso"));
     profiles.push_back(df_iso.Profile1D({"prof_raw_ep_vs_p_iso_custom", "<Raw E/p> vs p (custom); p (GeV); Raw E/p", nTrkPBins, trkPBins}, "pIso", "rawEpIso"));
-
     // uusi profiili filteröidyllä datalla
-    profiles.push_back(df_cut.Profile1D({"prof_ep_vs_p_cut", "<E/p> vs p (cut); p (GeV); E/p", nTrkPBins, trkPBins}, "pIso", "epIso"));
+    //profiles.push_back(df_cut.Profile1D({"prof_ep_vs_p_cut", "<E/p> vs p (cut); p (GeV); E/p", nTrkPBins, trkPBins}, "pIso", "epIso"));
 
-    // 1D-histogrammit: pT, eta, E/p jne
+    // --- 1D-HISTOGRAMMIT perusjakaumille (pT, eta, E/p jne) ---
     h1_histos.push_back(df_iso.Histo1D({"h_pt_iso", "p_{T} distribution; p_{T} (GeV); Events", 50, 0, 100}, "ptIso"));
     h1_histos.push_back(df_iso.Histo1D({"h_eta_iso", "#eta distribution; #eta; Events", 50, -1.3, 1.3}, "etaIso"));
     h1_histos.push_back(df_iso.Histo1D({"h_ep_iso", "E/p distribution; E/p; Events", 50, 0, 5}, "epIso"));
     h1_histos.push_back(df_iso.Histo1D({"h_raw_ep_iso", "Raw E/p distribution; E/p; Events", 50, 0, 5}, "rawEpIso"));
 
-    // 1D-histogrammit jaoteltuna hadronityypin mukaan
+    // --- 1D-HISTOGRAMMIT eri hadronityypeille ---
     h1_histos.push_back(df_iso.Filter("Sum(isHadH) > 0").Histo1D({"h_ep_isHadH", "E/p: HCAL only; E/p; Events", 50, 0, 2.5}, "epIso"));
     h1_histos.push_back(df_iso.Filter("Sum(isHadE) > 0").Histo1D({"h_ep_isHadE", "E/p: ECAL only; E/p; Events", 50, 0, 2.5}, "epIso"));
     h1_histos.push_back(df_iso.Filter("Sum(isHadMIP) > 0").Histo1D({"h_ep_isHadMIP", "E/p: MIP; E/p; Events", 50, 0, 2.5}, "epIso"));
     h1_histos.push_back(df_iso.Filter("Sum(isHadEH) > 0").Histo1D({"h_ep_isHadEH", "E/p: ECAL+HCAL; E/p; Events", 50, 0, 2.5}, "epIso"));
 
-    // Low p: 5.5–6.0 GeV
-    auto df_cut_H_low = df_cut_H.Filter("All(pIso > 5.5 && pIso < 6.0)");
-    auto h1_H_low = df_cut_H_low.Histo1D({"h_ep_cut_H_low", "E/p: HCAL only (low p); E/p; Events", 50, 0, 2.5}, "epIso");
+    // // --- RAJATUT pT-JAKAUMAT HCAL-only-tyypille (esim. fitted-mean-analyysia varten) ---
+    // // Low p: 5.5–6.0 GeV
+    // auto df_cut_H_low = df_cut_H.Filter("All(pIso > 5.5 && pIso < 6.0)");
+    // auto h1_H_low = df_cut_H_low.Histo1D({"h_ep_cut_H_low", "E/p: HCAL only (low p); E/p; Events", 50, 0, 2.5}, "epIso");
+    // // Medium p: 10–12 GeV
+    // auto df_cut_H_medium = df_cut_H.Filter("All(pIso > 10.0 && pIso < 12.0)");
+    // auto h1_H_medium = df_cut_H_medium.Histo1D({"h_ep_cut_H_medium", "E/p: HCAL only (medium p); E/p; Events", 50, 0, 2.5}, "epIso");
+    // // High p: 20–22 GeV
+    // auto df_cut_H_high = df_cut_H.Filter("All(pIso > 20.0 && pIso < 22.0)");
+    // auto h1_H_high = df_cut_H_high.Histo1D({"h_ep_cut_H_high", "E/p: HCAL only (high p); E/p; Events", 50, 0, 2.5}, "epIso");
 
-    // Medium p: 10–12 GeV
-    auto df_cut_H_medium = df_cut_H.Filter("All(pIso > 10.0 && pIso < 12.0)");
-    auto h1_H_medium = df_cut_H_medium.Histo1D({"h_ep_cut_H_medium", "E/p: HCAL only (medium p); E/p; Events", 50, 0, 2.5}, "epIso");
+    // h1_histos.push_back(h1_H_low);
+    // h1_histos.push_back(h1_H_medium);
+    // h1_histos.push_back(h1_H_high);
 
-    // High p: 20–22 GeV
-    auto df_cut_H_high = df_cut_H.Filter("All(pIso > 20.0 && pIso < 22.0)");
-    auto h1_H_high = df_cut_H_high.Histo1D({"h_ep_cut_H_high", "E/p: HCAL only (high p); E/p; Events", 50, 0, 2.5}, "epIso");
-
-    h1_histos.push_back(h1_H_low);
-    h1_histos.push_back(h1_H_medium);
-    h1_histos.push_back(h1_H_high);
-
-    // raaka E/p -jakaumat eri tyypeille
+    // --- RAW E/p -JAKAUMAT eri hadronityypeille (maskatuilla arvoilla) ---
     h1_histos.push_back(df_iso.Histo1D({"h_raw_ep_isHadH", "Raw E/p: HCAL only; E/p; Events", 40, 0, 2.5}, "rawEpIso_H"));
     h1_histos.push_back(df_iso.Histo1D({"h_raw_ep_isHadE", "Raw E/p: ECAL only; E/p; Events", 40, 0, 2.5}, "rawEpIso_E"));
     h1_histos.push_back(df_iso.Histo1D({"h_raw_ep_isHadMIP", "Raw E/p: MIP; E/p; Events", 40, 0, 2.5}, "rawEpIso_MIP"));
     h1_histos.push_back(df_iso.Histo1D({"h_raw_ep_isHadEH", "Raw E/p: ECAL+HCAL; E/p; Events", 40, 0, 2.5}, "rawEpIso_EH"));
 
-    // 3D-histogrammit: E/p vs E_HCAL/E_HCAL^raw vs. p, tyyppikohtaisesti
+    
+    // --- 3D-HISTOT: E/p vs. E_HCAL/E_HCAL^raw vs. p eri hadronityypeille ---
     std::vector<std::tuple<std::string, std::string>> hadronTypes = {
         {"isHadH", "HCAL only"},
         {"isHadE", "ECAL only"},
@@ -178,11 +191,11 @@ void run_histograms(const char* listfile, const char* tag) {
                      "response", "hcalCorrFactor", "pIso"));
     }
 
-// kirjoitetaan kaikki histogrammit ROOT-tiedostoon
+// --- AVATAAN ROOT-TIEDOSTO TULOSTUSTA VARTEN ---
 std::string filename = "histograms/" + std::string(tag) + ".root";
 TFile out(filename.c_str(), "RECREATE");
 
-// määritellään maskit float-muodossa fraktioprofiileja varten
+// // määritellään maskit float-muodossa fraktioprofiileja varten
 // auto df_frac = df_cut
 //     .Define("isHadH_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadH) v.push_back(x ? 1.0f : 0.0f); return v;")
 //     .Define("isHadE_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadE) v.push_back(x ? 1.0f : 0.0f); return v;")
@@ -190,7 +203,7 @@ TFile out(filename.c_str(), "RECREATE");
 //     .Define("isHadEH_float",  "ROOT::VecOps::RVec<float> v; for (auto x : isHadEH) v.push_back(x ? 1.0f : 0.0f); return v;");
 
 
-
+// --- muunnetaan bool-maskit float-arvoiksi fraktioprofiileja varten (0.0 tai 1.0) ---
 auto df_frac = df_iso
     .Define("isHadH_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadH) v.push_back(x ? 1.0f : 0.0f); return v;")
     .Define("isHadE_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadE) v.push_back(x ? 1.0f : 0.0f); return v;")
@@ -198,34 +211,77 @@ auto df_frac = df_iso
     .Define("isHadEH_float",  "ROOT::VecOps::RVec<float> v; for (auto x : isHadEH) v.push_back(x ? 1.0f : 0.0f); return v;");
 
 
+// Raw fraktioiden DataFrame (ei leikkausta)
+auto df_frac_raw = df_iso
+    .Define("isHadH_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadH) v.push_back(x ? 1.0f : 0.0f); return v;")
+    .Define("isHadE_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadE) v.push_back(x ? 1.0f : 0.0f); return v;")
+    .Define("isHadMIP_float", "ROOT::VecOps::RVec<float> v; for (auto x : isHadMIP) v.push_back(x ? 1.0f : 0.0f); return v;")
+    .Define("isHadEH_float",  "ROOT::VecOps::RVec<float> v; for (auto x : isHadEH) v.push_back(x ? 1.0f : 0.0f); return v;");
+
+// Korjatut fraktiot: käytetään HCAL-cuttiin suodatettua dataa!
+// auto df_frac_corr = df_cut
+//     .Define("isHadH_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadH) v.push_back(x ? 1.0f : 0.0f); return v;")
+//     .Define("isHadE_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadE) v.push_back(x ? 1.0f : 0.0f); return v;")
+//     .Define("isHadMIP_float", "ROOT::VecOps::RVec<float> v; for (auto x : isHadMIP) v.push_back(x ? 1.0f : 0.0f); return v;")
+//     .Define("isHadEH_float",  "ROOT::VecOps::RVec<float> v; for (auto x : isHadEH) v.push_back(x ? 1.0f : 0.0f); return v;");
 
 
-// lisätään fraktioprofiilit hadronityypeittäin
-profiles.push_back(df_frac.Profile1D({
-    "h_frac_H", "Fraction: HCAL only; p (GeV); Fraction", nTrkPBins, trkPBins
-}, "pIso", "isHadH_float"));
+// // --- LISÄTÄÄN FRAKTIOTYYPIN PROFIILIKUVAJAT: kuinka suuri osa hiukkasista kuuluu johonkin tyyppiin tietyssä p-alueessa ---
+// profiles.push_back(df_frac.Profile1D({
+//     "h_frac_H", "Fraction: HCAL only; p (GeV); Fraction", nTrkPBins, trkPBins
+// }, "pIso", "isHadH_float"));
+// profiles.push_back(df_frac.Profile1D({
+//     "h_frac_E", "Fraction: ECAL only; p (GeV); Fraction", nTrkPBins, trkPBins
+// }, "pIso", "isHadE_float"));
+// profiles.push_back(df_frac.Profile1D({
+//     "h_frac_MIP", "Fraction: MIP; p (GeV); Fraction", nTrkPBins, trkPBins
+// }, "pIso", "isHadMIP_float"));
+// profiles.push_back(df_frac.Profile1D({
+//     "h_frac_EH", "Fraction: ECAL+HCAL; p (GeV); Fraction", nTrkPBins, trkPBins
+// }, "pIso", "isHadEH_float"));
 
-profiles.push_back(df_frac.Profile1D({
-    "h_frac_E", "Fraction: ECAL only; p (GeV); Fraction", nTrkPBins, trkPBins
-}, "pIso", "isHadE_float"));
+// // --- LISÄTÄÄN FRAKTIOTYYPIN PROFIILIKUVAJAT myös raw E/p -datalla ---
+// profiles.push_back(df_frac.Profile1D({
+//     "h_raw_frac_H", "Raw Fraction: HCAL only; p (GeV); Fraction", nTrkPBins, trkPBins
+// }, "pIso", "isHadH_float"));
+// profiles.push_back(df_frac.Profile1D({
+//     "h_raw_frac_E", "Raw Fraction: ECAL only; p (GeV); Fraction", nTrkPBins, trkPBins
+// }, "pIso", "isHadE_float"));
+// profiles.push_back(df_frac.Profile1D({
+//     "h_raw_frac_MIP", "Raw Fraction: MIP; p (GeV); Fraction", nTrkPBins, trkPBins
+// }, "pIso", "isHadMIP_float"));
+// profiles.push_back(df_frac.Profile1D({
+//     "h_raw_frac_EH", "Raw Fraction: ECAL+HCAL; p (GeV); Fraction", nTrkPBins, trkPBins
+// }, "pIso", "isHadEH_float"));
 
-profiles.push_back(df_frac.Profile1D({
-    "h_frac_MIP", "Fraction: MIP; p (GeV); Fraction", nTrkPBins, trkPBins
-}, "pIso", "isHadMIP_float"));
 
-profiles.push_back(df_frac.Profile1D({
-    "h_frac_EH", "Fraction: ECAL+HCAL; p (GeV); Fraction", nTrkPBins, trkPBins
-}, "pIso", "isHadEH_float"));
+// // Korjatut fraktiot (leikatusta datasta!)
+// profiles.push_back(df_frac_corr.Profile1D({"h_frac_H",   "Fraction: HCAL only; p (GeV); Fraction", nTrkPBins, trkPBins}, "pIso", "isHadH_float"));
+// profiles.push_back(df_frac_corr.Profile1D({"h_frac_E",   "Fraction: ECAL only; p (GeV); Fraction", nTrkPBins, trkPBins}, "pIso", "isHadE_float"));
+// profiles.push_back(df_frac_corr.Profile1D({"h_frac_MIP", "Fraction: MIP; p (GeV); Fraction",       nTrkPBins, trkPBins}, "pIso", "isHadMIP_float"));
+// profiles.push_back(df_frac_corr.Profile1D({"h_frac_EH",  "Fraction: ECAL+HCAL; p (GeV); Fraction", nTrkPBins, trkPBins}, "pIso", "isHadEH_float"));
 
-// nyt kerätään kaikki histogrammit evaluointia varten
+profiles.push_back(df_frac.Profile1D({"h_frac_H",   "Fraction: HCAL only; p (GeV); Fraction", nTrkPBins, trkPBins}, "pIso", "isHadH_float"));
+profiles.push_back(df_frac.Profile1D({"h_frac_E",   "Fraction: ECAL only; p (GeV); Fraction", nTrkPBins, trkPBins}, "pIso", "isHadE_float"));
+profiles.push_back(df_frac.Profile1D({"h_frac_MIP", "Fraction: MIP; p (GeV); Fraction",       nTrkPBins, trkPBins}, "pIso", "isHadMIP_float"));
+profiles.push_back(df_frac.Profile1D({"h_frac_EH",  "Fraction: ECAL+HCAL; p (GeV); Fraction", nTrkPBins, trkPBins}, "pIso", "isHadEH_float"));
+
+// Raw fraktiot (ei leikkausta)
+profiles.push_back(df_frac_raw.Profile1D({"h_raw_frac_H",   "Raw Fraction: HCAL only; p (GeV); Fraction", nTrkPBins, trkPBins}, "pIso", "isHadH_float"));
+profiles.push_back(df_frac_raw.Profile1D({"h_raw_frac_E",   "Raw Fraction: ECAL only; p (GeV); Fraction", nTrkPBins, trkPBins}, "pIso", "isHadE_float"));
+profiles.push_back(df_frac_raw.Profile1D({"h_raw_frac_MIP", "Raw Fraction: MIP; p (GeV); Fraction",       nTrkPBins, trkPBins}, "pIso", "isHadMIP_float"));
+profiles.push_back(df_frac_raw.Profile1D({"h_raw_frac_EH",  "Raw Fraction: ECAL+HCAL; p (GeV); Fraction", nTrkPBins, trkPBins}, "pIso", "isHadEH_float"));
+
+
+// --- EVALUOIDAAN kaikki histogrammit kerralla (lazy evaluation aktivoituu vasta nyt) ---
 std::vector<ROOT::RDF::RResultHandle> handles;
 for (auto& h : h1_histos) handles.push_back(h);
 for (auto& h : h2_histos) handles.push_back(h);
 for (auto& h : h3_histos) handles.push_back(h);
 for (auto& p : profiles)  handles.push_back(p);
-ROOT::RDF::RunGraphs(handles);
+ROOT::RDF::RunGraphs(handles); // nyt vasta kaikki eventit käydään läpi
 
-// kirjoitetaan tallennetut histogrammit
+// --- KIRJOITETAAN kaikki histogrammit tiedostoon ---
 for (auto& h : h1_histos) h->Write();
 for (auto& h : h2_histos) h->Write();
 for (auto& h : h3_histos) h->Write();
@@ -236,8 +292,4 @@ out.Close();
 // tulostetaan kokonaisajankesto
 auto end = std::chrono::high_resolution_clock::now();
 std::cout << "Elapsed time: " << std::chrono::duration<double>(end - start).count() << " s\n";
-
-
-
-
 }
