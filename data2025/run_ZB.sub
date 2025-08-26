@@ -1,0 +1,162 @@
+executable              = run.sh
+arguments               = $(filelist) $(tag)
+output                  = condor/outs/ZB_$(tag).out
+error                   = condor/logs/ZB_$(tag).err
+log                     = condor/logs/ZB_$(tag).log
++JobFlavour             = "longlunch"
+request_cpus            = 1
+request_memory          = 2 GB
+request_disk            = 2 GB
+transfer_executable     = True
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files = run.sh, run_histograms, filelists_ZB.tar.gz
+
+queue filelist,tag from (
+filelists/ZB/ZeroBias2025C_v1_aa ZB
+filelists/ZB/ZeroBias2025C_v1_ab ZB
+filelists/ZB/ZeroBias2025C_v1_ac ZB
+filelists/ZB/ZeroBias2025C_v1_ad ZB
+filelists/ZB/ZeroBias2025C_v1_ae ZB
+filelists/ZB/ZeroBias2025C_v1_af ZB
+filelists/ZB/ZeroBias2025C_v1_ag ZB
+filelists/ZB/ZeroBias2025C_v1_ah ZB
+filelists/ZB/ZeroBias2025C_v1_ai ZB
+filelists/ZB/ZeroBias2025C_v1_aj ZB
+filelists/ZB/ZeroBias2025C_v1_ak ZB
+filelists/ZB/ZeroBias2025C_v1_al ZB
+filelists/ZB/ZeroBias2025C_v1_am ZB
+filelists/ZB/ZeroBias2025C_v1_an ZB
+filelists/ZB/ZeroBias2025C_v1_ao ZB
+filelists/ZB/ZeroBias2025C_v1_ap ZB
+filelists/ZB/ZeroBias2025C_v1_aq ZB
+filelists/ZB/ZeroBias2025C_v1_ar ZB
+filelists/ZB/ZeroBias2025C_v1_as ZB
+filelists/ZB/ZeroBias2025C_v1_at ZB
+filelists/ZB/ZeroBias2025C_v1_au ZB
+filelists/ZB/ZeroBias2025C_v1_av ZB
+filelists/ZB/ZeroBias2025C_v1_aw ZB
+filelists/ZB/ZeroBias2025C_v1_ax ZB
+filelists/ZB/ZeroBias2025C_v1_ay ZB
+filelists/ZB/ZeroBias2025C_v1_az ZB
+filelists/ZB/ZeroBias2025C_v1_ba ZB
+filelists/ZB/ZeroBias2025C_v1_bb ZB
+filelists/ZB/ZeroBias2025C_v1_bc ZB
+filelists/ZB/ZeroBias2025C_v1_bd ZB
+filelists/ZB/ZeroBias2025C_v1_be ZB
+filelists/ZB/ZeroBias2025C_v1_bf ZB
+filelists/ZB/ZeroBias2025C_v1_bg ZB
+filelists/ZB/ZeroBias2025C_v1_bh ZB
+filelists/ZB/ZeroBias2025C_v1_bi ZB
+filelists/ZB/ZeroBias2025C_v1_bj ZB
+filelists/ZB/ZeroBias2025C_v1_bk ZB
+filelists/ZB/ZeroBias2025C_v1_bl ZB
+filelists/ZB/ZeroBias2025C_v1_bm ZB
+filelists/ZB/ZeroBias2025C_v1_bn ZB
+filelists/ZB/ZeroBias2025C_v1_bo ZB
+filelists/ZB/ZeroBias2025C_v1_bp ZB
+filelists/ZB/ZeroBias2025C_v1_bq ZB
+filelists/ZB/ZeroBias2025C_v1_br ZB
+filelists/ZB/ZeroBias2025C_v1_bs ZB
+filelists/ZB/ZeroBias2025C_v1_bt ZB
+filelists/ZB/ZeroBias2025C_v1_bu ZB
+filelists/ZB/ZeroBias2025C_v1_bv ZB
+filelists/ZB/ZeroBias2025C_v1_bw ZB
+filelists/ZB/ZeroBias2025C_v1_bx ZB
+filelists/ZB/ZeroBias2025C_v1_by ZB
+filelists/ZB/ZeroBias2025C_v1_bz ZB
+filelists/ZB/ZeroBias2025C_v1_ca ZB
+filelists/ZB/ZeroBias2025C_v1_cb ZB
+filelists/ZB/ZeroBias2025C_v1_cc ZB
+filelists/ZB/ZeroBias2025C_v1_cd ZB
+filelists/ZB/ZeroBias2025C_v1_ce ZB
+filelists/ZB/ZeroBias2025C_v1_cf ZB
+filelists/ZB/ZeroBias2025C_v1_cg ZB
+filelists/ZB/ZeroBias2025C_v1_ch ZB
+filelists/ZB/ZeroBias2025C_v1_ci ZB
+filelists/ZB/ZeroBias2025C_v1_cj ZB
+filelists/ZB/ZeroBias2025C_v1_ck ZB
+filelists/ZB/ZeroBias2025C_v1_cl ZB
+filelists/ZB/ZeroBias2025C_v1_cm ZB
+filelists/ZB/ZeroBias2025C_v1_cn ZB
+filelists/ZB/ZeroBias2025C_v1_co ZB
+filelists/ZB/ZeroBias2025C_v1_cp ZB
+filelists/ZB/ZeroBias2025C_v1_cq ZB
+filelists/ZB/ZeroBias2025C_v1_cr ZB
+filelists/ZB/ZeroBias2025C_v1_cs ZB
+filelists/ZB/ZeroBias2025C_v1_ct ZB
+filelists/ZB/ZeroBias2025C_v1_cu ZB
+filelists/ZB/ZeroBias2025C_v1_cv ZB
+filelists/ZB/ZeroBias2025C_v1_cw ZB
+filelists/ZB/ZeroBias2025C_v1_cx ZB
+filelists/ZB/ZeroBias2025C_v1_cy ZB
+filelists/ZB/ZeroBias2025C_v1_cz ZB
+filelists/ZB/ZeroBias2025C_v1_da ZB
+filelists/ZB/ZeroBias2025C_v1_db ZB
+filelists/ZB/ZeroBias2025C_v1_dc ZB
+filelists/ZB/ZeroBias2025C_v1_dd ZB
+filelists/ZB/ZeroBias2025C_v1_de ZB
+filelists/ZB/ZeroBias2025C_v1_df ZB
+filelists/ZB/ZeroBias2025C_v1_dg ZB
+filelists/ZB/ZeroBias2025C_v1_dh ZB
+filelists/ZB/ZeroBias2025C_v1_di ZB
+filelists/ZB/ZeroBias2025C_v1_dj ZB
+filelists/ZB/ZeroBias2025C_v1_dk ZB
+filelists/ZB/ZeroBias2025C_v1_dl ZB
+filelists/ZB/ZeroBias2025C_v1_dm ZB
+filelists/ZB/ZeroBias2025C_v1_dn ZB
+filelists/ZB/ZeroBias2025C_v1_do ZB
+filelists/ZB/ZeroBias2025C_v1_dp ZB
+filelists/ZB/ZeroBias2025C_v1_dq ZB
+filelists/ZB/ZeroBias2025C_v1_dr ZB
+filelists/ZB/ZeroBias2025C_v1_ds ZB
+filelists/ZB/ZeroBias2025C_v2_aa ZB
+filelists/ZB/ZeroBias2025C_v2_ab ZB
+filelists/ZB/ZeroBias2025C_v2_ac ZB
+filelists/ZB/ZeroBias2025C_v2_ad ZB
+filelists/ZB/ZeroBias2025C_v2_ae ZB
+filelists/ZB/ZeroBias2025C_v2_af ZB
+filelists/ZB/ZeroBias2025C_v2_ag ZB
+filelists/ZB/ZeroBias2025C_v2_ah ZB
+filelists/ZB/ZeroBias2025C_v2_ai ZB
+filelists/ZB/ZeroBias2025C_v2_aj ZB
+filelists/ZB/ZeroBias2025C_v2_ak ZB
+filelists/ZB/ZeroBias2025C_v2_al ZB
+filelists/ZB/ZeroBias2025C_v2_am ZB
+filelists/ZB/ZeroBias2025C_v2_an ZB
+filelists/ZB/ZeroBias2025C_v2_ao ZB
+filelists/ZB/ZeroBias2025C_v2_ap ZB
+filelists/ZB/ZeroBias2025C_v2_aq ZB
+filelists/ZB/ZeroBias2025C_v2_ar ZB
+filelists/ZB/ZeroBias2025C_v2_as ZB
+filelists/ZB/ZeroBias2025C_v2_at ZB
+filelists/ZB/ZeroBias2025C_v2_au ZB
+filelists/ZB/ZeroBias2025C_v2_av ZB
+filelists/ZB/ZeroBias2025C_v2_aw ZB
+filelists/ZB/ZeroBias2025C_v2_ax ZB
+filelists/ZB/ZeroBias2025C_v2_ay ZB
+filelists/ZB/ZeroBias2025C_v2_az ZB
+filelists/ZB/ZeroBias2025C_v2_ba ZB
+filelists/ZB/ZeroBias2025C_v2_bb ZB
+filelists/ZB/ZeroBias2025C_v2_bc ZB
+filelists/ZB/ZeroBias2025C_v2_bd ZB
+filelists/ZB/ZeroBias2025C_v2_be ZB
+filelists/ZB/ZeroBias2025C_v2_bf ZB
+filelists/ZB/ZeroBias2025C_v2_bg ZB
+filelists/ZB/ZeroBias2025C_v2_bh ZB
+filelists/ZB/ZeroBias2025C_v2_bi ZB
+filelists/ZB/ZeroBias2025C_v2_bj ZB
+filelists/ZB/ZeroBias2025C_v2_bk ZB
+filelists/ZB/ZeroBias2025C_v2_bl ZB
+filelists/ZB/ZeroBias2025C_v2_bm ZB
+filelists/ZB/ZeroBias2025C_v2_bn ZB
+filelists/ZB/ZeroBias2025C_v2_bo ZB
+filelists/ZB/ZeroBias2025C_v2_bp ZB
+filelists/ZB/ZeroBias2025C_v2_bq ZB
+filelists/ZB/ZeroBias2025C_v2_br ZB
+filelists/ZB/ZeroBias2025C_v2_bs ZB
+filelists/ZB/ZeroBias2025C_v2_bt ZB
+filelists/ZB/ZeroBias2025C_v2_bu ZB
+filelists/ZB/ZeroBias2025C_v2_bv ZB
+filelists/ZB/ZeroBias2025C_v2_bw ZB
+)

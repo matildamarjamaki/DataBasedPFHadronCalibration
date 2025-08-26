@@ -1,0 +1,15 @@
+executable              = run.sh
+arguments               = filelists/SN/SN_ab SN_ab
+output                  = condor/outs/SN_ab.out
+error                   = condor/logs/SN_ab.err
+log                     = condor/logs/SN_ab.log
++JobFlavour             = "longlunch"
+request_cpus            = 1
+request_memory          = 2 GB
+request_disk            = 2 GB
+transfer_executable     = True
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files    = run.sh, run_histograms, filelists_SN.tar.gz
+
+queue
