@@ -1,10 +1,21 @@
-*.root
+# ROOT build artefaktit
 *.so
-*.d
 *.pcm
-*.swp
-*.tmp
+*.d
+*_dict*.h
+
+# Outputit ja isot tiedostot
+plots/
+plots2/
+results/
+histograms/
+root_files2025/
+inputfiles2025/
+irootfiles2025/
+
+# Muut isot tiedostot
+*.root
+*.pdf
+*.png
+*.aux
 *.log
-run_all.sh.e*
-run_all.sh.o*
-*.txt
