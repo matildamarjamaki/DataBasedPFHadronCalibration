@@ -1,1130 +1,1607 @@
 
 // =================== ROOT-kirjastot ===================
-#include "TFile.h" // ROOT-tiedostojen lukemiseen ja kirjoittamiseen
-#include "TCanvas.h" // Piirtoalustan luomiseen
-#include "TStyle.h" // Tyylimääritykset (esim. väriteemat)
-#include "TH1D.h" // 1D histogrammit
-#include "TH2D.h" // 2D histogrammit
-#include "TH3D.h" // 3D histogrammit
-#include "TProfile.h" // Profiilihistogrammit
-#include "TLegend.h" // Selitteiden/legendojen luomiseen
-#include "TGraph.h" // Pistejoukkojen piirtämiseen
-#include "TF1.h" // Sovitusfunktioiden luomiseen
-#include "THStack.h" // Histogrammien pinottamiseen
-#include "TSystem.h" // Järjestelmätoiminnot, kuten hakemistojen luomiseen
+// Perus ROOT-headereita kanvaksille, tiedostoille, tyyleille, histoille, graafeille ja fit-funktioille
+#include "TROOT.h"
+#include "TFile.h"
+#include "TCanvas.h"
+#include "TStyle.h"
+#include "TColor.h"
+#include "TPad.h"
+#include "TLegend.h"
+#include "TSystem.h"
+#include "TString.h"
 
+#include "TH1.h"
+#include "TH1D.h"
+#include "TH2.h"
+#include "TH2D.h"
+#include "TH3D.h"
+#include "TProfile.h"
+#include "THStack.h"
+
+#include "TGraph.h"
+#include "TGraphErrors.h"
+#include "TF1.h"
+#include "TLatex.h"
+
+#include <cmath>
+#include <limits>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
+#include <memory>
 
-// =================== Funktioprototyypit ===================
-void plot_stacked_comparison(); // Piirtää stacked E/p-distribuutiot (valmiista histogrammeista)
-void plot_ep_overlay(); // Piirtää E/p overlayn datalle ja simulaatiolle
-//void plot_ep_scale_vs_pt(); // Piirtää fitted-mean/profiili-mean vs. pT
-void plot_stacked_comparison_raw(); // Piirtää stacked E/p-distribuutiot raakadatasta (valmiista histogrammeista)
+// ---------- ETUDEKLARAATIOT (prototyypit) ----------
+// Pääplotit: MC vs Data E/p -overlay, pinottu fraktiovertailu, "kaikki plottaukset" ydinfunktio,
+// sivukomposiittien (PDF) kokoaminen ja 2D-heatmapit log-x:llä
+void plot_ep_overlay();
+void plot_stacked_comparison_raw(bool useHCALCut);
+void plot_histograms(const std::string& filename);
+void compile_response_pages(const char* inpath,
+                            const char* outpdf,
+                            const std::vector<std::pair<double,double>>& pBins);
+void make_h2_maps_logx_pdf(const char* inpath, const char* outdirTag);
+
+
+// Yhteiset tiedostopolut (DATA & MC sisäänmenohistot, sekä ulostulopohjakansio)
+constexpr const char* kFileMC   = "histograms/SingleNeutrino2024.root";
+constexpr const char* kFileData = "histograms/ZeroBias2024_All.root";
+constexpr const char* kOutBase  = "plots2";
+
 
 // =================== Pääfunktio ===================
+// - Jos argumentti on erikoislippu (esim. --compile-both), ajetaan koosteet/heatmapit
+// - Jos argumentti on "dummy", ajetaan muutama nopea vertailuplotti
+// - Muuten avataan annettu ROOT-tiedosto ja piirretään kaikki määritellyt kuvat
 void plot_histograms(const std::string& filename) {
-    // Jos filename on dummy, suoritetaan vain valmiiksi tallennettujen histogrammien plottaukset
-    if (filename == "dummy") {
-        plot_stacked_comparison(); // kutsutaan stacked-plotti tässä
-        plot_ep_overlay();
-        //plot_ep_scale_vs_pt();
-        plot_stacked_comparison_raw();
-        return;
-    }
 
-    // Avataan ROOT-tiedosto lukutilassa
-    TFile* file = TFile::Open(filename.c_str(), "READ"); 
-    if (!file || file->IsZombie()) {
-        std::cerr << "Error: cannot open file " << filename << std::endl;
-        return;
-    }
+  // ---- LIPUT: erikoisajot ilman yksittäisen ROOT-tiedoston avaamista ----
+  // Nämä polut tuottavat PDF-koostesivuja ja/tai logaritmisella x-akselilla
+  // varustettuja 2D-kartta-PDF:iä suoraan DATA/MC -tiedostoista
+  if (filename == "--compile-both" || filename == "--compile-data" ||
+      filename == "--compile-mc"   || filename == "make_h2") {
 
-    // Haetaan neljä 3D-histogrammia, jotka sisältävät E/p-arvot eri hadronityypeille
-    auto h3_H   = dynamic_cast<TH3D*>(file->Get("h3_resp_corr_p_isHadH")); // HCAL only
-    auto h3_E   = dynamic_cast<TH3D*>(file->Get("h3_resp_corr_p_isHadE")); // ECAL only
-    auto h3_MIP = dynamic_cast<TH3D*>(file->Get("h3_resp_corr_p_isHadMIP")); // MIP
-    auto h3_EH  = dynamic_cast<TH3D*>(file->Get("h3_resp_corr_p_isHadEH")); // ECAL + HCAL
-
-    // Asetetaan ROOTin globaali väripaletti 2D-plotteihin (kBird = sininen-violetti)
-    gStyle->SetPalette(kBird);
-
-    // Avataan sama tiedosto kirjoitustilassa, jotta voidaan tallentaa uusia objekteja (esim. fitit, kanvaasit)
-    TFile* fout = new TFile(filename.c_str(), "UPDATE");
-    fout->cd(); // asetetaan kirjoitusosoite nykyiseksi hakemistoksi
-
-    // Luo output-hakemisto kuville
-    std::string outdir = "plots/Data_ZeroBias2024_without_cut/";
-    gSystem->mkdir(outdir.c_str(), true); // luo hakemiston tarvittaessa
-
-    // Lista histogrammien nimistä, jotka piirretään sellaisenaan (1D, 2D tai TProfile)
-    std::vector<std::string> histNames = {
-        "h2_ep_vs_p_iso", "h2_raw_ep_vs_p_iso",
-        "prof_ep_vs_p_iso", "prof_raw_ep_vs_p_iso",
-        "prof_ep_vs_p_iso_custom", "prof_raw_ep_vs_p_iso_custom",
-        "h_pt_iso", "h_eta_iso", "h_ep_iso", "h_raw_ep_iso",
-        "h_ep_isHadH", "h_ep_isHadE", "h_ep_isHadMIP", "h_ep_isHadEH",
-        "h_raw_ep_isHadH", "h_raw_ep_isHadE", "h_raw_ep_isHadMIP", "h_raw_ep_isHadEH"
+    // p-ikkunat koostesivuille (järkevät ”matala–keskitaso–korkea” esimerkit)
+    std::vector<std::pair<double,double>> pBins = {
+      {5.5, 6.0}, {10.0, 12.0}, {20.0, 22.0}
     };
 
-    // Käydään läpi kaikki histogrammit ja piirretään ne omalle TCanvas-ikkunalle
+    // varmistetaan ulostulohakemistot
+    gSystem->mkdir("plots2", true);
+    gSystem->mkdir("plots2/Data_ZeroBias2024", true);
+    gSystem->mkdir("plots2/MC_SingleNeutrino2024", true);
+
+    // kooste-PDF:t
+    if (filename == "--compile-both" || filename == "--compile-data") {
+      compile_response_pages(kFileData, "plots2/Data_ZeroBias2024/response_pages.pdf", pBins);
+    }
+    if (filename == "--compile-both" || filename == "--compile-mc") {
+      compile_response_pages(kFileMC,   "plots2/MC_SingleNeutrino2024/response_pages.pdf", pBins);
+    }
+
+    // log-x heatmap PDF:t (2D: E/p vs p, sekä per-tyyppi projektiot 3D:stä)
+    if (filename == "--compile-both" || filename == "make_h2") {
+      make_h2_maps_logx_pdf(kFileData, "Data_ZeroBias2024");
+      make_h2_maps_logx_pdf(kFileMC,   "MC_SingleNeutrino2024");
+    }
+
+    return; // tärkeää: ei yritetä avata "filename":a ROOT-tiedostona
+  }
+
+  // ---- "dummy" = nopeat vertailuplottaukset ----
+  // (Tuottaa yhden MC vs Data overlayn Crystal Ball -fiteillä + kaksi stacked-vertailua)
+  if (filename == "dummy") {
+    plot_ep_overlay();
+    plot_stacked_comparison_raw(false); // no cut
+    plot_stacked_comparison_raw(true);  // HCAL cut
+    return;
+  }
+
+  // ---- Normaali tapaus: avaa annettu ROOT-tiedosto ----
+  // Tänne tullaan kun halutaan piirtää ”kaikki yksittäiset” kuvat tietystä tiedostosta.
+  TFile* file = TFile::Open(filename.c_str(), "READ");
+  if (!file || file->IsZombie()) {
+    std::cerr << "Error: cannot open file " << filename << std::endl;
+    return;
+  }
+
+  // Valitse outdir automaattisesti syötetiedoston nimen perusteella (Data vs MC)
+  std::string tag = "Unknown";
+  if (filename.find("ZeroBias") != std::string::npos)             tag = "Data_ZeroBias2024";
+  else if (filename.find("SingleNeutrino") != std::string::npos)  tag = "MC_SingleNeutrino2024";
+  std::string outdir = "plots2/" + tag + "/";
+  gSystem->mkdir(outdir.c_str(), true);
+
+  // Asetetaan paletti 2D-ploteille (väriskaala)
+  gStyle->SetPalette(kBird);
+
+
+    // Lista nimistä, jotka vastaavat uutta run_histograms.cc:tä
+    std::vector<std::string> histNames = {
+        // 1D: E/p raakana hadronityypeittäin (nämä ovat olemassa)
+        "h_raw_ep_isHadH", "h_raw_ep_isHadE", "h_raw_ep_isHadMIP", "h_raw_ep_isHadEH",
+
+        // 2D: E/p vs p kaikkiin neljään skenaarioon
+        "h2_ep_vs_p_S1_raw_cut",
+        "h2_ep_vs_p_S2_def_cut",
+        "h2_ep_vs_p_S3_raw_all",
+        "h2_ep_vs_p_S4_def_all",
+
+        // Profiilit: <E/p> vs p kaikkiin neljään skenaarioon
+        "prof_ep_vs_p_S1_raw_cut",
+        "prof_ep_vs_p_S2_def_cut",
+        "prof_ep_vs_p_S3_raw_all",
+        "prof_ep_vs_p_S4_def_all",
+
+        // Hadronifraktio-profiilit (all vs cut)
+        "h_frac_H_all","h_frac_E_all","h_frac_MIP_all","h_frac_EH_all",
+        "h_frac_H_cut","h_frac_E_cut","h_frac_MIP_cut","h_frac_EH_cut"
+    };
+
+    // Piirrä kaikki yllä listatut objektit jos löytyvät
     for (const auto& name : histNames) {
         TObject* obj = file->Get(name.c_str());
         if (!obj) continue;
 
-        // Luodaan uusi piirtoikkuna (canvas)
-        TCanvas* c = new TCanvas(("canvas_" + name).c_str(), name.c_str(), 800, 600);
+        TCanvas* c = new TCanvas(("canvas_" + name).c_str(), name.c_str(), 900, 700);
 
-        // jos histogrammi on 2D (TH2), piirretään lämpökarttana (COLZ)
         if (auto* h2 = dynamic_cast<TH2*>(obj)) {
             h2->GetXaxis()->SetTitle("Track momentum p (GeV)");
             h2->GetYaxis()->SetTitle((name.find("raw") != std::string::npos) ? "Raw E/p" : "E/p");
             h2->SetTitle((name.find("raw") != std::string::npos) ? "Raw E/p vs p" : "E/p vs p");
             h2->Draw("COLZ");
-
-        // jos histogrammi on 1D (TH1), piirretään tavallisena jakaumana
         } else if (auto* h1 = dynamic_cast<TH1*>(obj)) {
             h1->GetXaxis()->SetTitle("E/p");
             h1->GetYaxis()->SetTitle("Events");
             h1->SetTitle(name.c_str());
             h1->Draw("HIST");
-
-        // jos histogrammi on profiili (TProfile), piirretään pistejoukkona
         } else if (auto* prof = dynamic_cast<TProfile*>(obj)) {
             prof->GetXaxis()->SetTitle("Track momentum p (GeV)");
-            prof->GetYaxis()->SetTitle("Mean E/p");
-            prof->SetTitle("Mean E/p vs p");
+            if (name.rfind("h_frac_", 0) == 0) {          // profiilit, jotka ovat fraktioita
+                prof->GetYaxis()->SetTitle("Fraction");
+                prof->SetTitle("Hadron type fraction vs p");
+            } else {                                      // <E/p> profiilit
+                prof->GetYaxis()->SetTitle("Mean E/p");
+                prof->SetTitle("Mean E/p vs p");
+            }
             prof->Draw();
         }
 
-        // Tallennetaan kuva PNG-tiedostona ja ROOT-tiedostoon
-        c->SaveAs((outdir + name + ".png").c_str());
-        c->Write();
+        std::string histDir = outdir + "histograms/";
+        gSystem->mkdir(histDir.c_str(), true);
+
+        c->SaveAs((histDir + name + ".png").c_str());
+        delete c;
     }
 
-    // Hadronityypit ja niihin liittyvät otsikot sekä halutut pT-alueet
-    std::vector<std::string> hadronTypes = {"isHadH", "isHadE", "isHadMIP", "isHadEH"};
-    std::vector<std::string> labels = {"HCAL only", "ECAL only", "MIP", "ECAL+HCAL"};
-    std::vector<std::pair<double, double>> ptRanges = {{5.5, 6.0}, {10.0, 12.0}, {20.0, 22.0}};
-    std::vector<std::string> ptTags = {"low", "medium", "high"};
+    // -------- 3D → 2D -projektiot (uudet nimet & oikea akselijärjestys) --------
+    // h3_*:  X = E/p,  Y = E_HCAL / E_HCAL^raw,  Z = p
+    // Tehdään XY-projektio valituissa p-alueissa; HUOM: Y-akseli on korjausfaktori
+    std::vector<std::pair<std::string,std::string>> h3_list = {
+        {"h3_S1_raw_cut_ep_vs_hcal_p", "S1: Raw (HCAL E/E_{raw} > 0.9)"},
+        {"h3_S2_def_cut_ep_vs_hcal_p", "S2: Default (HCAL E/E_{raw} > 0.9)"},
+        {"h3_S3_raw_ep_vs_hcal_p",     "S3: Raw (no cut)"},
+        {"h3_S4_def_ep_vs_hcal_p",     "S4: Default (no cut)"}
+    };
 
-    // Käydään läpi jokainen hadronityyppi ja jokainen valittu p-alue
-    for (size_t i = 0; i < hadronTypes.size(); ++i) {
-        std::string name3d = "h3_resp_corr_p_" + hadronTypes[i];
-        TH3D* h3 = dynamic_cast<TH3D*>(file->Get(name3d.c_str()));
+    // Valitse p-ikkunat (voit muokata näitä)
+    std::vector<std::pair<double,double>> pRanges = {{5.5,6.0},{10.0,12.0},{20.0,22.0}};
+    std::vector<std::string> pTags   = {"low","medium","high"};
+
+    for (const auto& [h3name, titleTag] : h3_list) {
+        TH3D* h3 = dynamic_cast<TH3D*>(file->Get(h3name.c_str()));
         if (!h3) continue;
 
-        for (size_t j = 0; j < ptRanges.size(); ++j) {
-            double pmin = ptRanges[j].first;
-            double pmax = ptRanges[j].second;
+        for (size_t j = 0; j < pRanges.size(); ++j) {
+            const double pmin = pRanges[j].first;
+            const double pmax = pRanges[j].second;
 
-            // Rajataan Z-akseli (eli p-momentum) kyseiseen alueeseen
-            h3->GetZaxis()->SetRange(h3->GetZaxis()->FindBin(pmin + 1e-3),
-                                     h3->GetZaxis()->FindBin(pmax - 1e-3));
-            // Projektoidaan jäljelle jäävä 3D-histogrammi 2D:ksi (X vs Y)
-            auto proj2D = dynamic_cast<TH2D*>(h3->Project3D("xy"));
-            std::string proj2D_name = name3d + "_proj2D_" + ptTags[j];
+            // Rajaa Z (p) ja tee XY-projektio: X=E/p, Y=E_HCAL/E_HCAL^raw
+            const int zmin = h3->GetZaxis()->FindBin(pmin + 1e-3);
+            const int zmax = h3->GetZaxis()->FindBin(pmax - 1e-3);
+            h3->GetZaxis()->SetRange(zmin, zmax);
 
-            // Asetetaan akselit ja otsikot
-            proj2D->SetName(proj2D_name.c_str());
-            proj2D->SetMinimum(1e-6); // log-plotin alkuarvo
-            proj2D->SetTitle(Form("E/p vs E_{HCAL}/E_{HCAL}^{raw}, %s (%.1f - %.1f GeV)", labels[i].c_str(), pmin, pmax));
-            proj2D->GetXaxis()->SetTitle("E_{HCAL}/E_{HCAL}^{raw}");
-            proj2D->GetYaxis()->SetTitle("E/p");
+            TH2* proj2D = dynamic_cast<TH2*>(h3->Project3D("xy"));
+            if (!proj2D) continue;
 
-            // Piirretään ja tallennetaan kuva
-            TCanvas* c2D = new TCanvas(("canvas_" + proj2D_name).c_str(), proj2D_name.c_str(), 800, 600);
-            proj2D->GetXaxis()->SetRangeUser(0.9, 2.5); // rajoitetaan x-akseli
+            std::string projName = h3name + "_proj2D_" + pTags[j];
+            proj2D->SetName(projName.c_str());
+            proj2D->SetTitle(Form("%s, p = %.1f-%.1f GeV", titleTag.c_str(), pmin, pmax));
+            proj2D->GetXaxis()->SetTitle("E/p");
+            proj2D->GetYaxis()->SetTitle("E_{HCAL}/E_{HCAL}^{raw}");
+            proj2D->SetMinimum(1e-6);
+
+            TCanvas* c2 = new TCanvas(("canvas_" + projName).c_str(), projName.c_str(), 900, 700);
+            proj2D->GetYaxis()->SetRangeUser(0.9, 2.5);   // leikkausalue näkyviin Y-akselille
             proj2D->Draw("COLZ");
-            c2D->SaveAs((outdir + proj2D_name + ".png").c_str());
-            proj2D->Write();
-            c2D->Write();
+            std::string projDir = outdir + "projections/";
+            gSystem->mkdir(projDir.c_str(), true);
+
+            c2->SaveAs((projDir + projName + ".png").c_str());
+            delete c2;
+
+
+            // Palaa täyteen Z-rangeen seuraavaa projektiota varten
+            h3->GetZaxis()->UnZoom();
         }
     }
 
-        // ==========================================
-        // E/p-jakaumat tietyillä p-alueilla, fitataan Gaussin käyrä
-        // ==========================================
 
-        // Valitaan pT-alueet, joilla projektiot tehdään
-        std::vector<std::pair<double, double>> pBins = {{5.5, 6.0}, {20.0, 22.0}};
-        
-        // Haetaan 2D-histogrammit: E/p vs p
-        TH2D* h2_ep = dynamic_cast<TH2D*>(file->Get("h2_ep_vs_p_iso"));  // korjattu E/p
-        TH2D* h2_raw = dynamic_cast<TH2D*>(file->Get("h2_raw_ep_vs_p_iso")); // raakadata
+// // ==========================================
+// // E/p-jakaumat tietyillä p-alueilla (cut), Gauss-fitti
+// // ==========================================
 
-        // Tarkistetaan, että histogrammit löytyvät
-        if (h2_ep && h2_raw) {
-            for (const auto& [pmin, pmax] : pBins) {
+// // Valitse p-alueet
+// std::vector<std::pair<double, double>> pBins = {{5.5, 6.0}, {20.0, 22.0}};
 
-                // Määritetään projektioalue X-akselilla (p)
-                int bin_min = h2_ep->GetXaxis()->FindBin(pmin + 1e-3);
-                int bin_max = h2_ep->GetXaxis()->FindBin(pmax - 1e-3);
+// // Nouda 2D-histot uusilla nimillä (CUT-versiot)
+// TH2D* h2_def_cut = dynamic_cast<TH2D*>(file->Get("h2_ep_vs_p_S2_def_cut")); // Default E/p, HCAL cut
+// TH2D* h2_raw_cut = dynamic_cast<TH2D*>(file->Get("h2_ep_vs_p_S1_raw_cut")); // Raw E/p, HCAL cut
+// TH2D* h2_def_all = dynamic_cast<TH2D*>(file->Get("h2_ep_vs_p_S4_def_all"));
+// TH2D* h2_raw_all = dynamic_cast<TH2D*>(file->Get("h2_ep_vs_p_S3_raw_all"));
 
-                // Luodaan histogrammien nimet merkkijonona
-                std::stringstream sn, sr;
-                sn << "proj_ep_" << int(pmin * 10) << "_" << int(pmax * 10); // esim. proj_ep_55_60
-                sr << "proj_raw_ep_" << int(pmin * 10) << "_" << int(pmax * 10); // esim. proj_raw_ep_55_60
+// // Apufunktio: projektoi ja fittaa yhdestä 2D:stä
+// auto do_proj_fit = [&](TH2D* h2, const char* tag, const char* ytitle) {
+//     if (!h2) {
+//         std::cerr << "[WARN] histogram not found for " << tag << std::endl;
+//         return;
+//     }
+//     for (const auto& bin : pBins) {
+//         double pmin = bin.first, pmax = bin.second;
 
-                // Projektoidaan 2D-histogrammista E/p y-akselilla p-alueelle
-                TH1D* proj_n = h2_ep->ProjectionY(sn.str().c_str(), bin_min, bin_max);
-                TH1D* proj_r = h2_raw->ProjectionY(sr.str().c_str(), bin_min, bin_max);
+//         // X-akselin (p) bin-rajat
+//         int bin_min = h2->GetXaxis()->FindBin(pmin + 1e-3);
+//         int bin_max = h2->GetXaxis()->FindBin(pmax - 1e-3);
 
-                // Jos korjattu histogrammi löytyy ja ei ole tyhjä fitataan rajoitetulla alueella
-                if (proj_n && proj_n->Integral() > 0) {
-                    proj_n->Scale(1.0 / proj_n->Integral()); // normalisoi histogrammi
-                    TF1* fit_n = new TF1((sn.str() + "_fit").c_str(), "gaus", 0.0, 2.5);
-                    proj_n->Fit(fit_n, "RQ", "", 0.7, 1.2);
+//         // Nimet ulostuloille
+//         std::string hname = Form("proj_%s_%d_%d", tag, int(pmin*10), int(pmax*10));
+//         std::string cname = "canvas_" + hname;
 
-                    // Asetetaan otsikot ja akselit
-                    proj_n->SetTitle(Form("E/p in %.1f - %.1f GeV", pmin, pmax));
-                    proj_n->GetXaxis()->SetTitle("E/p");
-                    proj_n->GetYaxis()->SetTitle("Fraction of particles");
+//         // Projektio Y-akselille (E/p)
+//         TH1D* proj = h2->ProjectionY(hname.c_str(), bin_min, bin_max);
+//         if (!proj || proj->Integral() <= 0) continue;
+//         proj->SetDirectory(nullptr);     // irrota filestä varmuuden vuoksi
+//         proj->Scale(1.0 / proj->Integral());
 
-                    // Piirretään ja tallennetaan kuva
-                    TCanvas* c_n = new TCanvas(("canvas_" + sn.str()).c_str(), sn.str().c_str(), 800, 600);
-                    proj_n->SetFillColorAlpha(kBlue, 0.35);
-                    proj_n->Draw("hist");
-                    fit_n->SetLineColor(kRed);
-                    fit_n->Draw("same");
-                    c_n->SaveAs((outdir + sn.str() + ".png").c_str());
-                    c_n->Write();
-                }
+//         // Gauss-fitti järkevällä alueella
+//         TF1* fit = new TF1((hname + "_fit").c_str(), "gaus", 0.0, 2.5);
+//         proj->Fit(fit, "RQ", "", 0.7, 1.2);
 
-                // Sama raakadatalle (ilman korjausta)
-                if (proj_r && proj_r->Integral() > 0) {
-                    proj_r->Scale(1.0 / proj_r->Integral());
-                    TF1* fit_r = new TF1((sr.str() + "_fit").c_str(), "gaus", 0.0, 2.5);
-                    proj_r->Fit(fit_r, "RQ", "", 0.7, 1.2);
+//         // Piirto
+//         TCanvas* c = new TCanvas(cname.c_str(), cname.c_str(), 800, 600);
+//         proj->SetTitle(Form("%s in %.1f - %.1f GeV", ytitle, pmin, pmax));
+//         proj->GetXaxis()->SetTitle(ytitle);
+//         proj->GetYaxis()->SetTitle("Fraction of particles");
+//         proj->SetFillColorAlpha(kBlue, 0.35);
+//         proj->Draw("hist");
+//         fit->SetLineColor(kRed);
+//         fit->Draw("same");
+//         c->SaveAs((outdir + hname + ".png").c_str());
+//         c->Write();
+//     }
+// };
 
-                    proj_r->SetTitle(Form("Raw E/p in %.1f - %.1f GeV", pmin, pmax));
-                    proj_r->GetXaxis()->SetTitle("Raw E/p");
-                    proj_r->GetYaxis()->SetTitle("Fraction of particles");
-
-                    TCanvas* c_r = new TCanvas(("canvas_" + sr.str()).c_str(), sr.str().c_str(), 800, 600);
-                    proj_r->SetFillColorAlpha(kBlue, 0.35);
-                    proj_r->Draw("hist");
-                    fit_r->SetLineColor(kRed);
-                    fit_r->Draw("same");
-                    c_r->SaveAs((outdir + sr.str() + ".png").c_str());
-                    c_r->Write();
-                }
-            }
-        }
+// // Aja sekä raw cut että default cut (poista toinen, jos haluat vain toisen)
+// do_proj_fit(h2_raw_cut, "raw_ep_cut", "Raw E/p");
+// do_proj_fit(h2_def_cut, "def_ep_cut", "E/p");
+// do_proj_fit(h2_raw_all, "raw_ep_all", "Raw E/p");
+// do_proj_fit(h2_def_all, "def_ep_all", "E/p");
 
 
 
-    // ==========================================
-    // Fitted mean (ilman HCAL-korjausleikkausta), TGraph muodossa
-    // ==========================================
+// ==========================================
+// E/p-jakaumat valituilla p-alueilla (CUT), 3-Gauss fitti + komponentit
+// ==========================================
 
-    // Luodaan TGraph fitted-mean-arvoille
-    TGraph* g_fit = new TGraph();
+std::vector<std::pair<double, double>> pBins = {{5.5, 6.0}, {20.0, 22.0}};
 
-    // Määritellään pT-alueet ja niiden keskikohdat
-    std::vector<std::pair<double, double>> fit_pBins = {{5.5, 6.0}, {10.0, 12.0}, {20.0, 22.0}};
-    std::vector<double> pMid = {5.75, 11.0, 21.0};
+// Uudet 2D-histot (CUT-versiot):
+//  - S1: Raw E/p vs p (HCAL E/E_raw > 0.9)
+//  - S2: Default E/p vs p (HCAL E/E_raw > 0.9)
+TH2D* h2_raw_cut = dynamic_cast<TH2D*>(file->Get("h2_ep_vs_p_S1_raw_cut"));
+TH2D* h2_def_cut = dynamic_cast<TH2D*>(file->Get("h2_ep_vs_p_S2_def_cut"));
 
-    // Varmistetaan, että h2_ep on olemassa
-    if (h2_ep) {
-        for (size_t i = 0; i < fit_pBins.size(); ++i) {
-            double pmin = fit_pBins[i].first;
-            double pmax = fit_pBins[i].second;
+// Apufunktio: projektoi E/p (Y) valitulle p-alueelle ja fittaa 3 Gaussia
+auto fit3G = [&](TH2D* h2, const char* tag, const char* ytitle) {
+    if (!h2) {
+        std::cerr << "[WARN] histogram not found for " << tag << std::endl;
+        return;
+    }
+    for (auto [pmin, pmax] : pBins) {
+        int x1 = h2->GetXaxis()->FindBin(pmin + 1e-3);
+        int x2 = h2->GetXaxis()->FindBin(pmax - 1e-3);
 
-            // Binirajat p-alueelle
-            int bin_min = h2_ep->GetXaxis()->FindBin(pmin + 1e-3);
-            int bin_max = h2_ep->GetXaxis()->FindBin(pmax - 1e-3);
+        std::string hname = Form("proj_%s_%d_%d", tag, int(pmin*10), int(pmax*10));
+        TH1D* proj = h2->ProjectionY(hname.c_str(), x1, x2);
+        if (!proj || proj->Integral() <= 0) continue;
+        proj->SetDirectory(nullptr);
+        proj->Scale(1.0 / proj->Integral());
 
-            // Projektion nimi
-            std::string projName = Form("proj_fit_ep_nocut_%zu", i);
-            TH1D* hproj = h2_ep->ProjectionY(projName.c_str(), bin_min, bin_max);
+        TF1* fit = new TF1((hname + "_fit").c_str(), "gaus(0)+gaus(3)+gaus(6)", 0.0, 2.5);
+        // amp1, mean1, sigma1,  amp2, mean2, sigma2,  amp3, mean3, sigma3 (alut voi säätää)
+        fit->SetParameters(0.05, 1.00, 0.10,   0.05, 0.80, 0.10,   0.02, 1.30, 0.20);
+        proj->Fit(fit, "RQ", "", 0.7, 1.2);
 
-            // Jos histogrammi on tyhjä, ohitetaan
-            if (!hproj || hproj->Integral() == 0) continue;
+        TCanvas* c = new TCanvas(("canvas_" + hname).c_str(), "", 800, 600);
+        proj->SetFillColorAlpha(kBlue, 0.35);
+        proj->SetTitle(Form("%s, %.1f - %.1f GeV (HCAL E/E_{raw} > 0.9)", ytitle, pmin, pmax));
+        proj->GetXaxis()->SetTitle(ytitle);
+        proj->GetYaxis()->SetTitle("Fraction of particles");
+        proj->Draw("hist");
 
-            hproj->Scale(1.0 / hproj->Integral()); // normalisointi
+        TF1* fit_full = (TF1*)fit->Clone((hname + "_fit_full").c_str());
+        fit_full->SetRange(0.0, 2.5);
+        fit_full->SetLineColor(kRed);
+        fit_full->SetLineWidth(2);
+        fit_full->Draw("same");
 
-            // Fitataan Gaussin käyrä E/p-jakaumaan
-            TF1* fit = new TF1((projName + "_fit").c_str(), "gaus", 0.7, 1.2);
-            hproj->Fit(fit, "RQ");
+        // Yksittäiset gauss-komponentit
+        TF1* g1 = new TF1((hname + "_g1").c_str(), "gaus", 0.0, 2.5);
+        TF1* g2 = new TF1((hname + "_g2").c_str(), "gaus", 0.0, 2.5);
+        TF1* g3 = new TF1((hname + "_g3").c_str(), "gaus", 0.0, 2.5);
+        g1->SetParameters(fit->GetParameter(0), fit->GetParameter(1), fit->GetParameter(2));
+        g2->SetParameters(fit->GetParameter(3), fit->GetParameter(4), fit->GetParameter(5));
+        g3->SetParameters(fit->GetParameter(6), fit->GetParameter(7), fit->GetParameter(8));
+        g1->SetLineColor(kBlue + 2);   g1->SetLineStyle(2); g1->SetLineWidth(3); g1->Draw("same");
+        g2->SetLineColor(kGreen + 3);  g2->SetLineStyle(3); g2->SetLineWidth(3); g2->Draw("same");
+        g3->SetLineColor(kOrange + 1); g3->SetLineStyle(4); g3->SetLineWidth(3); g3->Draw("same");
 
-            // Lisätään fitted-mean piste graafiin
-            g_fit->SetPoint(g_fit->GetN(), pMid[i], fit->GetParameter(1));
+        std::string fitsDir = outdir + "fits/";
+        gSystem->mkdir(fitsDir.c_str(), true);
 
-            // Tallennetaan sovitusfunktio ROOT-tiedostoon (ei pakollista)
-            fit->Write();  // voi poistaa tämän jos ei tarvita
-        }
+        c->SaveAs((fitsDir + hname + ".png").c_str());
+        c->Write();
+    }
+};
+
+// Aja S1 ja S2 (poista toinen, jos haluat käsitellä vain toista casea)
+fit3G(h2_raw_cut, "raw_ep_cut", "Raw E/p");
+fit3G(h2_def_cut, "def_ep_cut", "E/p");
+
+// (Halutessasi myös versiot ilman leikkausta: S3/S4)
+// TH2D* h2_raw_all = dynamic_cast<TH2D*>(file->Get("h2_ep_vs_p_S3_raw_all"));
+// TH2D* h2_def_all = dynamic_cast<TH2D*>(file->Get("h2_ep_vs_p_S4_def_all"));
+// fit3G(h2_raw_all, "raw_ep_all", "Raw E/p");
+// fit3G(h2_def_all, "def_ep_all", "E/p");
+
+
+
+// ==========================================
+// Fitted mean (ilman HCAL-korjausleikkausta), TGraph-muodossa
+// ==========================================
+
+TGraph* g_fit = new TGraph();
+g_fit->SetName("g_fit_mean_nocut");
+g_fit->SetTitle("Fitted mean E/p vs p (no cut);p (GeV);mean(E/p)");
+
+std::vector<std::pair<double, double>> fit_pBins = {{5.5, 6.0}, {10.0, 12.0}, {20.0, 22.0}};
+std::vector<double> pMid = {5.75, 11.0, 21.0};
+
+// käytetään S4: Default E/p, no cut
+TH2D* h2_def_all = dynamic_cast<TH2D*>(file->Get("h2_ep_vs_p_S4_def_all"));
+if (h2_def_all) {
+    for (size_t i = 0; i < fit_pBins.size(); ++i) {
+        double pmin = fit_pBins[i].first;
+        double pmax = fit_pBins[i].second;
+
+        int bin_min = h2_def_all->GetXaxis()->FindBin(pmin + 1e-3);
+        int bin_max = h2_def_all->GetXaxis()->FindBin(pmax - 1e-3);
+
+        std::string projName = Form("proj_fit_ep_nocut_%zu", i);
+        TH1D* hproj = h2_def_all->ProjectionY(projName.c_str(), bin_min, bin_max);
+        if (!hproj || hproj->Integral() == 0) { delete hproj; continue; }
+
+        hproj->Scale(1.0 / hproj->Integral()); // normalisoi muoto
+        TF1* fit = new TF1((projName + "_fit").c_str(), "gaus", 0.7, 1.2);
+        hproj->Fit(fit, "RQ");
+
+        g_fit->SetPoint(g_fit->GetN(), pMid[i], fit->GetParameter(1));
+
+        fit->Write();               // talleta halutessasi
+        // (hproj talletetaan myöhemmin, jos haluat; muuten vapauta)
+        delete hproj;
     }
 
-    // ===============================
-    // Fitted-meanit HCAL-korjauksen jälkeen
-    // ===============================
-
-    // Määritellään pT-välit ja niiden tagit (low, medium, high)
-    std::vector<std::pair<double, double>> hcalcut_pBins = {{5.5, 6.5}, {10.0, 12.0}, {20.0, 24.0}};
-    std::vector<std::string> tags = {"low", "medium", "high"};
-
-    // TGraph fitted-mean pisteiden piirtämistä varten (HCAL-korjauksella)
-    TGraph* g_fit_hcalcut = new TGraph();
-
-    // Ladataan histogrammi HCAL only -hadronityypille (esim. pionit, jotka tallettavat energiansa pääosin HCALiin)
-    TH3D* h3 = dynamic_cast<TH3D*>(file->Get("h3_resp_corr_p_isHadH"));
-    if (h3) {
-        for (size_t i = 0; i < hcalcut_pBins.size(); ++i) {
-            double pmin = hcalcut_pBins[i].first, pmax = hcalcut_pBins[i].second;
-            double pmid = pMid[i]; // Vastaa keskimääräistä pT-arvoa TGraph-pistettä varten
-
-            // Määritetään HCAL-korjauksen leikkausalue (0.9 < E_HCAL / E_HCAL^raw < 2.5)
-            int y_min = h3->GetYaxis()->FindBin(0.9001); // pieni epsilon estää reunabinit
-            int y_max = h3->GetYaxis()->FindBin(2.4999);
-
-            // Määritetään p-alue Z-akselilla
-            int z_min = h3->GetZaxis()->FindBin(pmin + 1e-3);
-            int z_max = h3->GetZaxis()->FindBin(pmax - 1e-3);
-
-            std::string projName = "proj_resp_cut_" + tags[i];
-            // Projektio X-akselille (E/p), leikkaamalla sopivilla Y- ja Z-akselin rajoilla
-            TH1D* hproj = h3->ProjectionX(projName.c_str(), y_min, y_max, z_min, z_max);
-
-            if (!hproj || hproj->Integral() == 0) {
-                std::cout << "[INFO] Skip empty projection: " << projName << std::endl;
-                continue;
-            }
-
-            // Normalisointi
-            hproj->Scale(1.0 / hproj->Integral());
-
-            // Gauss-fit
-            TF1* fit = new TF1((projName + "_fit").c_str(), "gaus", 0.0, 2.5);
-            hproj->Fit(fit, "RQ");
-
-            // Lisätään fitted-mean (muuttuja: keskikohta, eli fit->GetParameter(1)) TGraphiin)
-            g_fit_hcalcut->SetPoint(g_fit_hcalcut->GetN(), pmid, fit->GetParameter(1));
-
-            // Piirretään histogrammi ja fit
-            TCanvas* c = new TCanvas(("canvas_" + projName).c_str(), "", 800, 600);
-            hproj->SetTitle(Form("E/p for HCALcut, %s (%.1f - %.1f GeV)", tags[i].c_str(), pmin, pmax));
-            hproj->GetXaxis()->SetTitle("E/p");
-            hproj->GetYaxis()->SetTitle("Fraction of particles");
-            hproj->Draw("HIST");
-            fit->SetLineColor(kRed);
-            fit->Draw("same");
-
-            // Tallennus
-            c->SaveAs((outdir + projName + ".png").c_str());
-            c->Write();
-            fit->Write();
-        }
-
-        // Resetoi mahdolliset axis-ranget seuraavaa käyttöä varten
-        h3->GetYaxis()->UnZoom();
-        h3->GetZaxis()->UnZoom();
-    }
-
-    // ===============================
-    // Vertailuplotti: profiili vs. fitted-mean vs. HCAL-cut fitted-mean
-    // ===============================
-
-    // Luo uusi canvas
-    TCanvas* c = new TCanvas("canvas_compare_fit_vs_profile", "", 800, 600);
-    c->SetGrid();  // taustalle ruudukko
-
-    // Piilotetaan statistiikkalaatikko
-    gStyle->SetOptStat(0);
-
-    // Profiilikeskiarvo (ilman leikkausta)
-    TProfile* prof = dynamic_cast<TProfile*>(file->Get("prof_ep_vs_p_iso_custom"));
-    if (prof) {
-        prof->SetLineColor(kBlue + 2);
-        prof->SetLineWidth(2);
-        prof->SetTitle("E/p response vs p (with and without HCAL correction cut)");
-        prof->GetXaxis()->SetTitle("Track momentum p (GeV)");
-        prof->GetYaxis()->SetTitle("E/p");
-
-        // Rajoitetaan y-akselin näkyvä alue
-        prof->GetYaxis()->SetRangeUser(0.75, 1.1);
-        prof->Draw("HIST");
-    }
-
-    // Fitted-mean ilman HCAL-leikkausta
+    // piirrä ja talleta TGraph
+    TCanvas* c_mean_nocut = new TCanvas("c_mean_nocut", "", 800, 600);
     g_fit->SetMarkerStyle(20);
-    g_fit->SetMarkerColor(kRed + 1);
-    g_fit->SetLineColor(kRed + 1);
-    g_fit->SetLineWidth(2);
-    g_fit->Draw("PL SAME");
+    g_fit->SetMarkerSize(1.1);
+    g_fit->Draw("AP");
+    std::string summaryDir = outdir + "summary/";
+    gSystem->mkdir(summaryDir.c_str(), true);
 
-    // Fitted-mean HCAL-korjausleikkauksella
-    g_fit_hcalcut->SetMarkerStyle(21);
-    g_fit_hcalcut->SetMarkerColor(kGreen + 2);
-    g_fit_hcalcut->SetLineColor(kGreen + 2);
-    g_fit_hcalcut->SetLineWidth(2);
-    g_fit_hcalcut->Draw("PL SAME");
+    c_mean_nocut->SaveAs((summaryDir + "mean_ep_vs_p_nocut.png").c_str());
+    c_mean_nocut->Write();
 
-    // Legenda
-    TLegend* leg = new TLegend(0.15, 0.70, 0.65, 0.88);
-    leg->SetTextSize(0.035);
-    leg->AddEntry(prof, "Profile mean (no cut)", "l");
-    leg->AddEntry(g_fit, "Fitted mean (no cut)", "lp");
-    leg->AddEntry(g_fit_hcalcut, "Fitted mean (HCAL cut: E_{HCAL}/E_{HCAL}^{raw} > 0.9)", "lp");
+    g_fit->Write(); // talleta graafi ROOT-tiedostoon
+}
+
+// (Vaihtoehtoisesti nopeampi: käytä profiilia prof_ep_vs_p_S4_def_all 
+// ja ota sen bin-meanit suoraan ilman Gauss-fittiä.)
+
+// ===============================
+// Fitted-meanit HCAL-korjauksen jälkeen
+// ===============================
+
+// p-alueet ja tagit kuvien nimeämiseen
+std::vector<std::pair<double, double>> hcalcut_pBins = {{5.5, 6.5}, {10.0, 12.0}, {20.0, 24.0}};
+std::vector<std::string> tags = {"low", "medium", "high"};
+
+TGraph* g_fit_hcalcut = new TGraph();
+g_fit_hcalcut->SetName("g_fit_mean_hcalcut");
+g_fit_hcalcut->SetTitle("Fitted mean E/p vs p (HCAL cut);p (GeV);mean(E/p)");
+
+// käytetään S2: Default E/p, HCAL E/Eraw > 0.9
+TH3D* h3 = dynamic_cast<TH3D*>(file->Get("h3_S2_def_cut_ep_vs_hcal_p"));
+if (h3) {
+    int y_min = h3->GetYaxis()->FindBin(0.9001); // 0.9 < E_HCAL/E_HCAL^raw < 2.5
+    int y_max = h3->GetYaxis()->FindBin(2.4999);
+
+    for (size_t i = 0; i < hcalcut_pBins.size(); ++i) {
+        double pmin = hcalcut_pBins[i].first, pmax = hcalcut_pBins[i].second;
+        double pmid = pMid[i];
+
+        int z_min = h3->GetZaxis()->FindBin(pmin + 1e-3);
+        int z_max = h3->GetZaxis()->FindBin(pmax - 1e-3);
+
+        std::string projName = "proj_resp_cut_" + tags[i];
+        TH1D* hproj = h3->ProjectionX(projName.c_str(), y_min, y_max, z_min, z_max);
+        if (!hproj || hproj->Integral() == 0) { delete hproj; continue; }
+
+        hproj->Scale(1.0 / hproj->Integral());
+        TF1* fit = new TF1((projName + "_fit").c_str(), "gaus", 0.7, 1.2);
+        hproj->Fit(fit, "RQ");
+
+        g_fit_hcalcut->SetPoint(g_fit_hcalcut->GetN(), pmid, fit->GetParameter(1));
+
+        // piirrä ja talleta jokainen projektiokuva (valinnainen)
+        TCanvas* c = new TCanvas(("canvas_" + projName).c_str(), "", 800, 600);
+        hproj->SetTitle(Form("E/p for HCALcut, %s (%.1f - %.1f GeV)", tags[i].c_str(), pmin, pmax));
+        hproj->GetXaxis()->SetTitle("E/p");
+        hproj->GetYaxis()->SetTitle("Fraction of particles");
+        hproj->Draw("HIST");
+        fit->SetLineColor(kRed);
+        fit->Draw("same");
+        std::string projDir = outdir + "projections/";
+        gSystem->mkdir(projDir.c_str(), true);
+
+        c->SaveAs((projDir + projName + ".png").c_str());
+        c->Write();
+        fit->Write();
+
+
+        delete c;
+        delete hproj;
+    }
+
+    // piirrä ja talleta HCALcut-graafi
+    TCanvas* c_mean_cut = new TCanvas("c_mean_cut", "", 800, 600);
+    g_fit_hcalcut->SetMarkerStyle(20);
+    g_fit_hcalcut->SetMarkerSize(1.1);
+    g_fit_hcalcut->Draw("AP");
+    std::string summaryDir = outdir + "summary/";
+    gSystem->mkdir(summaryDir.c_str(), true);
+
+    c_mean_cut->SaveAs((summaryDir + "mean_ep_vs_p_hcalcut.png").c_str());
+    c_mean_cut->Write();
+    g_fit_hcalcut->Write();
+
+
+    h3->GetYaxis()->UnZoom();
+    h3->GetZaxis()->UnZoom();
+}
+
+
+// ===============================
+// E/p per hadronityyppi kaikissa p-bineissä — KAIKKI CASET ERIKSEEN
+// ===============================
+
+// p-binit
+const double trkPBins_full[] = {
+  3.0, 3.3, 3.6, 3.9, 4.2, 4.6, 5.0, 5.5, 6.0, 6.6,
+  7.2, 7.9, 8.6, 9.3, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
+  16.5, 18.0, 20.0, 22.0, 25.0, 30.0, 35.0, 40.0, 45.0, 55.0, 70.0, 130.0
+};
+const int nTrkPBins_full = sizeof(trkPBins_full)/sizeof(double) - 1;
+
+// hadronityypit ja labelit
+const std::vector<std::pair<std::string,std::string>> hadronTypesWithLabel = {
+  {"isHadH",  "HCALonly"},
+  {"isHadE",  "ECALonly"},
+  {"isHadMIP","MIP"},
+  {"isHadEH", "ECALHCAL"}
+};
+
+// caset (huom: nimet pitää vastata run_histograms.cc:ssä kirjoitettuihin)
+struct CaseDef {
+  std::string prefix;   // h3-nimen alku
+  std::string suffix;   // h3-nimen loppu
+  std::string tag;      // alikansioille ja tiedostonimille
+  bool        useHcalCut; // true => 0.9–2.5, false => koko Y-akseli
+};
+
+// Jos teit myös RAW+cut -versiot, jätä nämä neljä; muuten poista *_cut raw -case
+const std::vector<CaseDef> cases = {
+  // default E/p + HCAL cut (tuotettu nimillä h3_resp_corr_p_isHad*)
+  {"h3_resp_corr_p_", "",      "def_cut",  true},
+  // default E/p, no cut
+  {"h3_resp_def_p_",  "_all",  "def_all",  false},
+  // raw E/p, no cut
+  {"h3_resp_raw_p_",  "_all",  "raw_all",  false},
+  // raw E/p + HCAL cut (vain jos lisäsit nämä run_histograms.cc:hen)
+  {"h3_resp_raw_p_",  "_cut",  "raw_cut",  true}
+};
+
+gStyle->SetOptFit(111);
+
+for (const auto& cs : cases) {
+  // tee oma ulostulokansio tälle caselle
+  std::string outdir_case = outdir + "perType_" + cs.tag + "/";
+  gSystem->mkdir(outdir_case.c_str(), true);
+
+  for (const auto& [type, label] : hadronTypesWithLabel) {
+    std::string hname = cs.prefix + type + cs.suffix;
+    TH3D* h3 = dynamic_cast<TH3D*>(file->Get(hname.c_str()));
+    if (!h3) {
+      std::cout << "[WARN] Missing TH3: " << hname << " in " << filename << std::endl;
+      continue;
+    }
+
+    // Y-akselin (HCAL E/Eraw) alue: leikkauksessa 0.9–2.5, muuten koko alue
+    int y_min = h3->GetYaxis()->GetFirst();
+    int y_max = h3->GetYaxis()->GetLast();
+    if (cs.useHcalCut) {
+      y_min = h3->GetYaxis()->FindBin(0.9001);
+      y_max = h3->GetYaxis()->FindBin(2.4999);
+    }
+
+    for (int i = 0; i < nTrkPBins_full; ++i) {
+      double pmin = trkPBins_full[i];
+      double pmax = trkPBins_full[i+1];
+
+      int z_min = h3->GetZaxis()->FindBin(pmin + 1e-3);
+      int z_max = h3->GetZaxis()->FindBin(pmax - 1e-3);
+
+      // Projektio X (E/p)
+      std::string projName = Form("proj_ep_%s_%s_bin_%d", label.c_str(), cs.tag.c_str(), i);
+      TH1D* hproj = h3->ProjectionX(projName.c_str(), y_min, y_max, z_min, z_max);
+      if (!hproj || hproj->Integral() == 0) { delete hproj; continue; }
+
+      hproj->Scale(1.0 / hproj->Integral());
+      hproj->SetTitle(Form("E/p (%s, %s), %.1f - %.1f GeV", label.c_str(), cs.tag.c_str(), pmin, pmax));
+      hproj->GetXaxis()->SetTitle("E/p");
+      hproj->GetYaxis()->SetTitle("Fraction of particles");
+      hproj->SetLineColor(kBlue + 2);
+
+      // 3-Gauss fitti (samat startit kuin aiemmin, p-alueesta riippuvat rajat)
+      TF1* fit = new TF1(("fit_" + projName).c_str(), "gaus(0)+gaus(3)+gaus(6)", 0.0, 2.5);
+      fit->SetNpx(1000);
+
+      if (pmax < 4.0) {
+        fit->SetParameters(0.2, 1.0, 0.2,   0.05, 0.6, 0.1,   0.01, 1.4, 0.3);
+        fit->SetParLimits(1, 0.8, 1.2);
+        fit->SetParLimits(4, 0.4, 0.8);
+      } else if (pmax < 10.0) {
+        fit->SetParameters(0.1, 0.8, 0.15,  0.03, 1.0, 0.1,   0.005, 1.4, 0.25);
+        fit->SetParLimits(1, 0.6, 1.0);
+        fit->SetParLimits(4, 0.8, 1.2);
+      } else if (pmax < 25.0) {
+        fit->SetParameters(0.2, 0.7, 0.1,   0.1, 1.0, 0.1,   0.01, 1.4, 0.25);
+        fit->SetParLimits(1, 0.4, 0.9);
+        fit->SetParLimits(4, 0.8, 1.1);
+      } else {
+        fit->SetParameters(0.3, 0.1, 0.03,  0.1, 0.9, 0.2,   0.01, 1.4, 0.3);
+        fit->SetParLimits(1, 0.01, 0.3);
+        fit->SetParLimits(2, 0.005, 0.1);
+        fit->SetParLimits(4, 0.6, 1.1);
+      }
+      fit->SetLineColor(kRed);
+      fit->SetLineWidth(2);
+
+      // piirto
+      TCanvas* c = new TCanvas(("canvas_" + projName).c_str(), "", 800, 600);
+      hproj->Fit(fit, "RQ");
+      hproj->Draw("HIST");
+      fit->Draw("SAME");
+
+      // komponentit näkyviin
+      TF1* g1 = new TF1((projName + "_g1").c_str(), "gaus", 0.0, 2.5);
+      TF1* g2 = new TF1((projName + "_g2").c_str(), "gaus", 0.0, 2.5);
+      TF1* g3 = new TF1((projName + "_g3").c_str(), "gaus", 0.0, 2.5);
+      g1->SetParameters(fit->GetParameter(0), fit->GetParameter(1), fit->GetParameter(2));
+      g2->SetParameters(fit->GetParameter(3), fit->GetParameter(4), fit->GetParameter(5));
+      g3->SetParameters(fit->GetParameter(6), fit->GetParameter(7), fit->GetParameter(8));
+      g1->SetLineStyle(2); g1->SetLineColor(kGreen + 2);   g1->Draw("same");
+      g2->SetLineStyle(3); g2->SetLineColor(kMagenta + 1); g2->Draw("same");
+      g3->SetLineStyle(4); g3->SetLineColor(kOrange + 7);  g3->Draw("same");
+
+      // tallennus
+      c->SaveAs((outdir_case + projName + ".png").c_str());
+      c->Write();
+
+      // siivous
+      delete g1; delete g2; delete g3;
+      delete fit;
+      delete c;
+      delete hproj;
+    }
+
+    h3->GetYaxis()->UnZoom();
+    h3->GetZaxis()->UnZoom();
+  }
+}
+
+
+
+// ===============================
+// Yhdistetty E/p per hadronityyppi (kaikki p), kaikki caset
+// ===============================
+
+gStyle->SetOptFit(111);
+
+for (const auto& cs : cases) {
+  // kuvien alikansio per case
+  std::string outdir_case = outdir + "perTypeAllPt_" + cs.tag + "/";
+  gSystem->mkdir(outdir_case.c_str(), true);
+
+  for (const auto& [type, label] : hadronTypesWithLabel) {
+    // hae oikea 3D-histo tälle caselle ja hadronityypille
+    std::string hname = cs.prefix + type + cs.suffix;
+    TH3D* h3 = dynamic_cast<TH3D*>(file->Get(hname.c_str()));
+    if (!h3) {
+      std::cout << "[WARN] Missing TH3: " << hname << " in " << filename << std::endl;
+      continue;
+    }
+
+    // Y-alue (HCAL E/Eraw): cut-caselle 0.9–2.5, muuten koko akseli
+    int y_min = h3->GetYaxis()->GetFirst();
+    int y_max = h3->GetYaxis()->GetLast();
+    if (cs.useHcalCut) {
+      y_min = h3->GetYaxis()->FindBin(0.9001);
+      y_max = h3->GetYaxis()->FindBin(2.4999);
+    }
+
+    // Z-alue: kaikki p
+    int z_min = h3->GetZaxis()->GetFirst();
+    int z_max = h3->GetZaxis()->GetLast();
+
+    // projektio X:lle (E/p)
+    std::string projName = "proj_ep_" + label + "_allpt_" + cs.tag;
+    TH1D* hproj = h3->ProjectionX(projName.c_str(), y_min, y_max, z_min, z_max);
+    if (!hproj || hproj->Integral() == 0) { delete hproj; continue; }
+
+    hproj->Scale(1.0 / hproj->Integral());
+
+    TCanvas* c = new TCanvas(("canvas_" + projName).c_str(), "", 800, 600);
+    hproj->SetTitle(Form("E/p (%s, %s), all p", label.c_str(), cs.tag.c_str()));
+    hproj->GetXaxis()->SetTitle("E/p");
+    hproj->GetYaxis()->SetTitle("Fraction of particles");
+    hproj->SetLineColor(kBlue + 2);
+    hproj->SetLineWidth(2);
+
+    // 3-Gauss -fitti (kolmas rajoitettu)
+    TF1* fit = new TF1(("fit_" + projName).c_str(), "gaus(0)+gaus(3)+gaus(6)", 0.0, 2.5);
+    fit->SetParameters(0.2, 0.8, 0.1,  0.1, 1.0, 0.1,  0.01, 1.4, 0.25);
+    fit->SetParLimits(6, 0.0, 0.2);   // amp3
+    fit->SetParLimits(7, 1.2, 1.7);   // mean3
+    fit->SetParLimits(8, 0.1, 0.5);   // sigma3
+    fit->SetLineColor(kRed);
+    fit->SetLineWidth(2);
+
+    hproj->Fit(fit, "RQ");
+    hproj->Draw("HIST");
+    fit->Draw("SAME");
+
+    // komponentit näkyviin
+    TF1* g1 = new TF1((projName + "_g1").c_str(), "gaus", 0.0, 2.5);
+    TF1* g2 = new TF1((projName + "_g2").c_str(), "gaus", 0.0, 2.5);
+    TF1* g3 = new TF1((projName + "_g3").c_str(), "gaus", 0.0, 2.5);
+    g1->SetParameters(fit->GetParameter(0), fit->GetParameter(1), fit->GetParameter(2));
+    g2->SetParameters(fit->GetParameter(3), fit->GetParameter(4), fit->GetParameter(5));
+    g3->SetParameters(fit->GetParameter(6), fit->GetParameter(7), fit->GetParameter(8));
+    g1->SetLineStyle(2); g1->SetLineColor(kGreen + 2);   g1->Draw("same");
+    g2->SetLineStyle(3); g2->SetLineColor(kMagenta + 1); g2->Draw("same");
+    g3->SetLineStyle(4); g3->SetLineColor(kOrange + 7);  g3->Draw("same");
+
+    // tallennus
+    c->SaveAs((outdir_case + projName + ".png").c_str());
+    c->Write();
+
+    // siivous
+    delete g1; delete g2; delete g3;
+    delete fit;
+    delete c;
+    delete hproj;
+  }
+}
+
+// ===============================
+// STACKED E/p DISTRIBUTIONS FOR EACH p BIN
+// ===============================
+
+// p-binit (tämä täsmää run_histograms.cc:ssä käytettyihin)
+const double trkPBins[] = {
+  3.0, 3.3, 3.6, 3.9, 4.2, 4.6, 5.0, 5.5, 6.0, 6.6,
+  7.2, 7.9, 8.6, 9.3, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
+  16.5, 18.0, 20.0, 22.0, 25.0, 30.0, 35.0, 40.0, 45.0, 55.0, 70.0, 130.0
+};
+const int nTrkPBins = sizeof(trkPBins) / sizeof(double) - 1;
+
+// Varmistetaan että 3D-histot (default E/p + HCAL cut) on olemassa
+TH3D* h3_H   = dynamic_cast<TH3D*>(file->Get("h3_resp_corr_p_isHadH"));
+TH3D* h3_E   = dynamic_cast<TH3D*>(file->Get("h3_resp_corr_p_isHadE"));
+TH3D* h3_MIP = dynamic_cast<TH3D*>(file->Get("h3_resp_corr_p_isHadMIP"));
+TH3D* h3_EH  = dynamic_cast<TH3D*>(file->Get("h3_resp_corr_p_isHadEH"));
+
+if (h3_H && h3_E && h3_MIP && h3_EH) {
+  // Y: 0.9 < E_HCAL/E_HCAL^raw < 2.5
+  const int y_min = h3_H->GetYaxis()->FindBin(0.9001);
+  const int y_max = h3_H->GetYaxis()->FindBin(2.4999);
+
+  for (int i = 0; i < nTrkPBins; ++i) {
+    const double pmin = trkPBins[i];
+    const double pmax = trkPBins[i+1];
+
+    const int z_min = h3_H->GetZaxis()->FindBin(pmin + 1e-3);
+    const int z_max = h3_H->GetZaxis()->FindBin(pmax - 1e-3);
+
+    // Projektio X:lle (E/p) jokaiselle tyypille
+    TH1D* h_H_proj   = h3_H  ? h3_H ->ProjectionX(Form("h_H_%d",   i), y_min, y_max, z_min, z_max) : nullptr;
+    TH1D* h_E_proj   = h3_E  ? h3_E ->ProjectionX(Form("h_E_%d",   i), y_min, y_max, z_min, z_max) : nullptr;
+    TH1D* h_MIP_proj = h3_MIP? h3_MIP->ProjectionX(Form("h_MIP_%d", i), y_min, y_max, z_min, z_max) : nullptr;
+    TH1D* h_EH_proj  = h3_EH ? h3_EH->ProjectionX(Form("h_EH_%d",  i), y_min, y_max, z_min, z_max) : nullptr;
+
+    // Kokonaissumma normalisointia varten
+    double total = 0.0;
+    if (h_H_proj)   total += h_H_proj->Integral();
+    if (h_E_proj)   total += h_E_proj->Integral();
+    if (h_MIP_proj) total += h_MIP_proj->Integral();
+    if (h_EH_proj)  total += h_EH_proj->Integral();
+    if (total <= 0) continue;
+
+    // THStack
+    THStack* stack = new THStack(Form("stack_%d", i),
+      Form("E/p stack, %.1f - %.1f GeV;E/p;Fraction", pmin, pmax));
+
+    // Lisää komponentit pinoon skaalattuna fraktioiksi
+    struct Comp { TH1D* h; Color_t col; const char* lab; };
+    std::vector<Comp> comps = {
+      {h_MIP_proj, kGreen+2,  "MIP"},
+      {h_H_proj,   kRed+1,    "HCAL only"},
+      {h_E_proj,   kBlue+1,   "ECAL only"},
+      {h_EH_proj,  kMagenta+2,"ECAL+HCAL"}
+    };
+
+    TLegend* leg = new TLegend(0.68, 0.62, 0.88, 0.88);
+    leg->AddEntry((TObject*)nullptr, Form("p = %.1f-%.1f GeV", pmin, pmax), "");
+
+    for (auto& c : comps) {
+      if (!c.h || c.h->Integral() == 0) continue;
+      c.h->Scale(1.0 / total);
+      c.h->SetFillColor(c.col);
+      c.h->SetLineColor(kBlack);
+      c.h->SetLineWidth(1);
+      stack->Add(c.h);
+      leg->AddEntry(c.h, c.lab, "f");
+    }
+
+    // Piirto
+    TCanvas* c = new TCanvas(Form("canvas_stack_%d", i), "", 900, 650);
+    stack->Draw("HIST");
+    // Aseta akselit piirtämisen jälkeen (THStack luo akselit vasta Draw:n yhteydessä)
+    if (stack->GetXaxis()) stack->GetXaxis()->SetTitle("E/p");
+    if (stack->GetYaxis()) { stack->GetYaxis()->SetTitle("Fraction"); stack->SetMinimum(0.0); }
     leg->Draw();
 
-    // Tallennus
-    c->SaveAs((outdir + "compare_fit_vs_profile_improved.png").c_str());
+    // Piirrä ja tallenna kuva
+    // Luo alakansio "stacked" jos sitä ei ole vielä
+    std::string stackedDir = outdir + "stacked/";
+    gSystem->mkdir(stackedDir.c_str(), true);
+
+    // Tallenna kuva alakansioon
+    c->SaveAs((stackedDir + Form("stack_ep_bin_%d.png", i)).c_str());
     c->Write();
 
 
+    // Valinnainen: fittaa summamuoto (komponenttien summa)
+    TH1D* h_sum = nullptr;
+    for (auto& cpt : comps) {
+      if (!cpt.h) continue;
+      if (!h_sum) h_sum = (TH1D*)cpt.h->Clone(Form("h_sum_%d", i));
+      else        h_sum->Add(cpt.h);
+    }
+    if (h_sum && h_sum->Integral() > 0) {
+      TCanvas* c_fit = new TCanvas(Form("c_fit_%d", i), "", 900, 650);
+      h_sum->SetTitle(Form("Fit to stacked E/p, %.1f - %.1f GeV;E/p;Fraction", pmin, pmax));
+      h_sum->SetLineColor(kBlack);
+      h_sum->SetLineWidth(2);
+      TF1* f = new TF1(Form("f_sum_%d", i), "gaus(0)", 0.3, 2.0);
+      f->SetLineColor(kRed+1);
+      f->SetLineWidth(2);
+      h_sum->Fit(f, "RQ");
+      h_sum->Draw("HIST");
+      f->Draw("SAME");
+      std::string fitsDir = outdir + "fits/";
+      gSystem->mkdir(fitsDir.c_str(), true);
 
-    // ===============================
-    // E/p-jakaumat per hadronityyppi kaikissa pT-bineissä (ei stack, ei overlay)
-    // ===============================
+      c_fit->SaveAs((fitsDir + Form("fit_stack_bin_%d.png", i)).c_str());
+      c_fit->Write();
 
-    // Määritellään koko pT-binnitys
-    const double trkPBins_full[] = {
-        3.0, 3.3, 3.6, 3.9, 4.2, 4.6, 5.0, 5.5, 6.0, 6.6,
-        7.2, 7.9, 8.6, 9.3, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
-        16.5, 18.0, 20.0, 22.0, 25.0, 30.0, 35.0, 40.0, 45.0, 55.0, 70.0, 130.0
-    };
-    const int nTrkPBins_full = sizeof(trkPBins_full) / sizeof(double) - 1;
-
-    // Hadronityypit ja labelit (käytetään tiedostonimissä ja otsikoissa)
-    std::vector<std::pair<std::string, std::string>> hadronTypesWithLabel = {
-        {"isHadH", "HCALonly"},
-        {"isHadE", "ECALonly"},
-        {"isHadMIP", "MIP"},
-        {"isHadEH", "ECALHCAL"}
-    };
-
-    // Näytetään fit-parametrit kuvan yhteydessä
-    gStyle->SetOptFit(111);
-
-    for (const auto& [type, label] : hadronTypesWithLabel) {
-        // Ladataan oikea 3D-histogrammi
-        TH3D* h3 = dynamic_cast<TH3D*>(file->Get(("h3_resp_corr_p_" + type).c_str()));
-        if (!h3) continue;
-
-        // HCAL correction cut: 0.9 < E_HCAL / E_HCAL^raw < 2.5
-        int y_min = h3->GetYaxis()->FindBin(0.9001);
-        int y_max = h3->GetYaxis()->FindBin(2.4999);
-
-        for (int i = 0; i < nTrkPBins_full; ++i) {
-            double pmin = trkPBins_full[i];
-            double pmax = trkPBins_full[i + 1];
-
-            int z_min = h3->GetZaxis()->FindBin(pmin + 1e-3);
-            int z_max = h3->GetZaxis()->FindBin(pmax - 1e-3);
-
-            std::string projName = Form("proj_ep_%s_bin_%d", label.c_str(), i);
-            TH1D* hproj = h3->ProjectionX(projName.c_str(), y_min, y_max, z_min, z_max);
-            if (!hproj || hproj->Integral() == 0) continue;
-
-            hproj->Scale(1.0 / hproj->Integral());
-
-            TCanvas* c = new TCanvas(("canvas_" + projName).c_str(), "", 800, 600);
-            hproj->SetTitle(Form("E/p (%s), %.1f-%.1f GeV", label.c_str(), pmin, pmax));
-            hproj->GetXaxis()->SetTitle("E/p");
-            hproj->GetYaxis()->SetTitle("Fraction of particles");
-            hproj->SetLineColor(kBlue + 2);
-
-            // Fitataan useammalla Gaussilla (kolmen komponentin malli)
-            std::string fitName = "fit_" + projName;
-            TF1* fit = new TF1(fitName.c_str(), "gaus(0) + gaus(3) + gaus(6)", 0.3, 2.0);
-            fit->SetParameters(0.2, 0.8, 0.1, 0.1, 1.0, 0.1, 0.05, 1.3, 0.2);
-            fit->SetLineColor(kRed);
-            fit->SetLineWidth(2);
-
-            hproj->Fit(fit, "RQ");
-            hproj->Draw("HIST");
-
-            // Jos fitti onnistui, piirretään se
-            TF1* fit_result = hproj->GetFunction(fitName.c_str());
-            if (fit_result) {
-                fit_result->SetLineColor(kRed);
-                fit_result->SetLineWidth(2);
-                fit_result->Draw("SAME");
-            }
-
-            // Tallennus
-            c->SaveAs((outdir + projName + ".png").c_str());
-            c->Write();
-        }
-
-        // Resetoi zoomaukset
-        h3->GetYaxis()->UnZoom();
-        h3->GetZaxis()->UnZoom();
+      delete f;
+      delete c_fit;
     }
 
-    // ===============================
-    // STACKED E/p DISTRIBUTIONS FOR EACH pT BIN
-    // ===============================
+    delete leg;
+    delete c;
+  }
 
-    // Määritellään pT-binnit (täsmää histogrammin Z-akseliin)
-    const double trkPBins[] = {
-        3.0, 3.3, 3.6, 3.9, 4.2, 4.6, 5.0, 5.5, 6.0, 6.6,
-        7.2, 7.9, 8.6, 9.3, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
-        16.5, 18.0, 20.0, 22.0, 25.0, 30.0, 35.0, 40.0, 45.0, 55.0, 70.0, 130.0
-    };
-    const int nTrkPBins = sizeof(trkPBins) / sizeof(double) - 1;
+  // Palauta mahdolliset zoomaukset
+  h3_H->GetYaxis()->UnZoom(); h3_H->GetZaxis()->UnZoom();
+  h3_E->GetYaxis()->UnZoom(); h3_E->GetZaxis()->UnZoom();
+  h3_MIP->GetYaxis()->UnZoom(); h3_MIP->GetZaxis()->UnZoom();
+  h3_EH->GetYaxis()->UnZoom(); h3_EH->GetZaxis()->UnZoom();
+}
 
-    if (h3_H && h3_E && h3_MIP && h3_EH) {
-        // HCAL correction cut Y-akselilla
-        int y_min = h3_H->GetYaxis()->FindBin(0.9001);
-        int y_max = h3_H->GetYaxis()->FindBin(2.4999);
 
-        // Laske kokonaismäärä
-        for (int i = 0; i < nTrkPBins; ++i) {
-            double pmin = trkPBins[i];
-            double pmax = trkPBins[i + 1];
-
-            int z_min = h3_H->GetZaxis()->FindBin(pmin + 1e-3);
-            int z_max = h3_H->GetZaxis()->FindBin(pmax - 1e-3);
-            
-            // Projektio E/p-akselille (X) jokaiselle hadronityypille
-            TH1D* h_H   = h3_H  ? h3_H->ProjectionX(Form("h_H_%d", i), y_min, y_max, z_min, z_max) : nullptr;
-            TH1D* h_E   = h3_E  ? h3_E->ProjectionX(Form("h_E_%d", i), y_min, y_max, z_min, z_max) : nullptr;
-            TH1D* h_MIP = h3_MIP? h3_MIP->ProjectionX(Form("h_MIP_%d", i), y_min, y_max, z_min, z_max) : nullptr;
-            TH1D* h_EH  = h3_EH ? h3_EH->ProjectionX(Form("h_EH_%d", i), y_min, y_max, z_min, z_max) : nullptr;
-            
-            // Kokonaissumman lasku normalisointia varten
-            double total = 0.0;
-                if (h_H)   total += h_H->Integral();
-                if (h_E)   total += h_E->Integral();
-                if (h_MIP) total += h_MIP->Integral();
-                if (h_EH)  total += h_EH->Integral();
-                if (total == 0) continue;
-
-                // Luo stacked histogrammi (THStack)
-                THStack* stack = new THStack(Form("stack_%d", i), Form("E/p stack, %.1f-%.1f GeV;E/p;Fraction", pmin, pmax));
-
-                // Värit + skaalaus
-                std::vector<std::pair<TH1D*, Color_t>> hists = {
-                   {h_MIP, kGreen + 2}, {h_H, kRed + 1}, {h_E, kBlue + 1}, {h_EH, kMagenta + 2}
-                };
-
-                for (auto& [h, color] : hists) {
-                    if (!h || h->Integral() == 0) continue;
-                    h->Scale(1.0 / total);
-                    h->SetFillColor(color);
-                    h->SetLineColor(kBlack);
-                    stack->Add(h);
-                    std::cout << "pT bin " << i << ": Adding " << h->GetName() << ", scaled integral = " << h->Integral() << std::endl;
-                }
-
-                // Piirretään stack ja legenda
-                TCanvas* c = new TCanvas(Form("canvas_stack_%d", i), "", 800, 600);
-                stack->Draw("HIST");
-
-                TLegend* leg = new TLegend(0.7, 0.65, 0.88, 0.88);
-                leg->AddEntry((TObject*)0, Form("p_{T} = %.1f-%.1f GeV", pmin, pmax), "");
-                leg->AddEntry(h_H, "HCAL only", "f");
-                leg->AddEntry(h_E, "ECAL only", "f");
-                leg->AddEntry(h_MIP, "MIP", "f");
-                leg->AddEntry(h_EH, "ECAL+HCAL", "f");
-                leg->Draw();
-
-                c->SaveAs((outdir + Form("/stack_ep_bin_%d.png", i)).c_str());
-                c->Write();
-
-                // Fitataan kokonaissumman E/p-jakauma (summa kaikista tyypeistä)
-                if (h_H && h_E && h_MIP && h_EH) {
-                TH1D* h_sum = (TH1D*)h_H->Clone(Form("h_sum_%d", i));
-                h_sum->Add(h_E);
-                h_sum->Add(h_MIP);
-                h_sum->Add(h_EH);
-                h_sum->Scale(1.0 / h_sum->Integral());
-
-                // Fittaus esim. Gaussilla
-                TF1* fit = new TF1(Form("fit_%d", i), "gaus(0)", 0.3, 2.0); // tai sopivampi funktio!
-                fit->SetLineColor(kBlack);
-                fit->SetLineWidth(2);
-                h_sum->Fit(fit, "RQ");
-
-                // Piirrä fitti
-                TCanvas* c_fit = new TCanvas(Form("c_fit_%d", i), "", 800, 600);
-                h_sum->SetTitle(Form("Fit to stacked E/p, %.1f-%.1f GeV", pmin, pmax));
-                h_sum->GetXaxis()->SetTitle("E/p");
-                h_sum->GetYaxis()->SetTitle("Fraction");
-                h_sum->Draw("HIST");
-                fit->Draw("SAME");
-
-                c_fit->SaveAs((outdir + Form("/fit_stack_bin_%d.png", i)).c_str());
-                c_fit->Write();
-                }
-            }
-
-        // Palautetaan zoomaukset
-        h3_H->GetYaxis()->UnZoom();
-        h3_H->GetZaxis()->UnZoom();
-    }
-
-    // ===============================
-// FRAKTIOPLOTTI: HADRONITYYPIT p:n FUNKTIONA
+// ===============================
+// HADRON FRACTIONS vs p (no cut ja/tai HCAL cut)
 // ===============================
 
-    // Ladataan hadronifraktioiden 1D-histogrammit
-    TCanvas* c_frac = new TCanvas("c_frac", "Hadron type fraction vs p", 800, 600);
-    auto h_frac_H   = dynamic_cast<TH1D*>(file->Get("h_frac_H"));
-    auto h_frac_E   = dynamic_cast<TH1D*>(file->Get("h_frac_E"));
-    auto h_frac_MIP = dynamic_cast<TH1D*>(file->Get("h_frac_MIP"));
-    auto h_frac_EH  = dynamic_cast<TH1D*>(file->Get("h_frac_EH"));
+auto drawFractions = [&](const char* suffix, const char* tagInName){
+  // yritä hakea TProfilet tällä suffiksilla
+  TProfile* pH   = dynamic_cast<TProfile*>(file->Get(Form("h_frac_H_%s",   suffix)));
+  TProfile* pE   = dynamic_cast<TProfile*>(file->Get(Form("h_frac_E_%s",   suffix)));
+  TProfile* pMIP = dynamic_cast<TProfile*>(file->Get(Form("h_frac_MIP_%s", suffix)));
+  TProfile* pEH  = dynamic_cast<TProfile*>(file->Get(Form("h_frac_EH_%s",  suffix)));
+  if (!(pH && pE && pMIP && pEH)) return false;
 
-    if (h_frac_H && h_frac_E && h_frac_MIP && h_frac_EH) {
-        // Aseta värit ja tyyli
-        h_frac_H->SetLineColor(kRed + 1);
-        h_frac_E->SetLineColor(kBlue + 1);
-        h_frac_MIP->SetLineColor(kGreen + 2);
-        h_frac_EH->SetLineColor(kMagenta + 2);
+  TCanvas* c = new TCanvas(Form("c_frac_%s", suffix), "", 900, 650);
 
-        h_frac_H->SetLineWidth(2);
-        h_frac_E->SetLineWidth(2);
-        h_frac_MIP->SetLineWidth(2);
-        h_frac_EH->SetLineWidth(2);
+  // piirtojärjestys ja tyyli
+  pH->SetLineColor(kRed+1);     pH->SetLineWidth(2);
+  pE->SetLineColor(kBlue+1);    pE->SetLineWidth(2);
+  pMIP->SetLineColor(kGreen+2); pMIP->SetLineWidth(2);
+  pEH->SetLineColor(kMagenta+2);pEH->SetLineWidth(2);
 
-        h_frac_H->SetTitle("Hadron type fraction vs p");
-        h_frac_H->GetXaxis()->SetTitle("Track momentum p (GeV)");
-        h_frac_H->GetYaxis()->SetTitle("Fraction");
+  pH->SetTitle(Form("Hadron type fraction vs p (%s);p (GeV);fraction", tagInName));
+  pH->SetMinimum(0.0); pH->SetMaximum(1.05);
 
-        h_frac_H->SetMinimum(0.0);
-        h_frac_H->SetMaximum(1.05);
+  pH->Draw("E1");
+  pE->Draw("E1 SAME");
+  pMIP->Draw("E1 SAME");
+  pEH->Draw("E1 SAME");
 
-        // Piirto
-        h_frac_H->Draw("HIST");
-        h_frac_E->Draw("HIST SAME");
-        h_frac_MIP->Draw("HIST SAME");
-        h_frac_EH->Draw("HIST SAME");
+  TLegend* leg = new TLegend(0.15, 0.68, 0.55, 0.88);
+  leg->SetTextSize(0.035);
+  leg->AddEntry(pH,   "HCAL only", "l");
+  leg->AddEntry(pE,   "ECAL only", "l");
+  leg->AddEntry(pMIP, "MIP",       "l");
+  leg->AddEntry(pEH,  "ECAL+HCAL", "l");
+  leg->Draw();
 
-        // Legenda
-        TLegend* leg = new TLegend(0.15, 0.68, 0.55, 0.88);
-        leg->SetTextSize(0.035);
-        leg->AddEntry(h_frac_H,   "HCAL only", "l");
-        leg->AddEntry(h_frac_E,   "ECAL only", "l");
-        leg->AddEntry(h_frac_MIP, "MIP",       "l");
-        leg->AddEntry(h_frac_EH,  "ECAL+HCAL", "l");
-        leg->Draw();
+  std::string fracDir = outdir + "fractions/";
+  gSystem->mkdir(fracDir.c_str(), true);
 
-        // Tallennus
-        c_frac->SaveAs((outdir + "fraction_per_type_vs_pT.png").c_str());
-        c_frac->Write();
-    }
+  c->SaveAs((fracDir + Form("fraction_per_type_vs_pT_%s.png", suffix)).c_str());
+  c->Write();
 
-    // ===============================
-    // HADRONITYYPPIEN FRAKTIOT: PINOTTU HISTOGRAMMI
-    // ===============================
 
-    std::cout << "Drawing stacked hadron fraction plot..." << std::endl;
+  delete leg;
+  delete c;
+  return true;
+};
 
-    // Luodaan uudet TH1D:t samoilla pT-bineillä
-    TH1D* h_H_bin   = new TH1D("h_H_bin", "Hadron fractions", nTrkPBins, trkPBins);
-    TH1D* h_E_bin   = new TH1D("h_E_bin", "Hadron fractions", nTrkPBins, trkPBins);
-    TH1D* h_MIP_bin = new TH1D("h_MIP_bin", "Hadron fractions", nTrkPBins, trkPBins);
-    TH1D* h_EH_bin  = new TH1D("h_EH_bin", "Hadron fractions", nTrkPBins, trkPBins);
-
-    // Täytetään fraktiotiedot aiemmin tehdyistä 1D-histogrammeista
-    for (int i = 1; i <= h_H_bin->GetNbinsX(); ++i) {
-        h_H_bin->SetBinContent(i, h_frac_H->GetBinContent(i));
-        h_E_bin->SetBinContent(i, h_frac_E->GetBinContent(i));
-        h_MIP_bin->SetBinContent(i, h_frac_MIP->GetBinContent(i));
-        h_EH_bin->SetBinContent(i, h_frac_EH->GetBinContent(i));
-    }
-
-    // Asetetaan värit (sama kuin aiemmissa stack-ploteissa)
-    h_H_bin->SetFillColor(kRed);
-    h_E_bin->SetFillColor(kBlue);
-    h_MIP_bin->SetFillColor(kMagenta);
-    h_EH_bin->SetFillColor(kGreen+2);
-
-    // Luodaan stack
-    THStack* hs = new THStack("hs", "Hadron type fraction vs p;Track momentum p (GeV);Fraction");
-    hs->Add(h_E_bin);
-    hs->Add(h_MIP_bin);
-    hs->Add(h_EH_bin);
-    hs->Add(h_H_bin);
-
-    // Piirretään
-    TCanvas* c_stack = new TCanvas("c_stack_frac", "", 900, 700);
-    hs->Draw("hist");
-    hs->SetMaximum(1.05);
-    hs->GetXaxis()->SetTitleSize(0.045);
-    hs->GetYaxis()->SetTitleSize(0.045);
-
-    //Legenda
-    TLegend* leg_stack = new TLegend(0.70, 0.65, 0.88, 0.88);
-    leg_stack->AddEntry(h_H_bin, "HCAL only", "f");
-    leg_stack->AddEntry(h_E_bin, "ECAL only", "f");
-    leg_stack->AddEntry(h_MIP_bin, "MIP", "f");
-    leg_stack->AddEntry(h_EH_bin, "ECAL+HCAL", "f");
-    leg_stack->Draw();
-
-    // Tallennus
-    c_stack->SaveAs((outdir + "/fraction_stacked.png").c_str());
-    c_stack->Write();
-
-    // Suljetaan ROOT -tiedostot
-    fout->Close();
-    file->Close();
+// Piirrä HCAL-cut-versio, ja jos ei löydy, piirrä no-cut
+bool drew_cut = drawFractions("cut", "HCAL E/E_{raw} > 0.9");
+bool drew_all = drawFractions("all", "no cut");
+if (!drew_cut && !drew_all) {
+  std::cout << "[WARN] No hadron fraction profiles found (neither *_cut nor *_all)." << std::endl;
 }
 
 
-// stacked vertailuplotti hadronifraktioista
-// Piirtää rinnakkain stacked histogrammit hadronikomponenttien fraktioista MC- ja data-aineistosta.
-// Vasemmalle piirtyy MC:n stacked histogrammi ja datapisteet päälle,
-// oikealle piirtyy datan stacked histogrammi.
-// Fraktiot: HCAL only, MIP, ECAL+HCAL, ECAL only
+// ===============================
+// HADRONITYYPPIEN FRAKTIOT: PINOTTU HISTOGRAMMI
+// ===============================
+std::cout << "Drawing stacked hadron fraction plot..." << std::endl;
 
-void plot_stacked_comparison() {
-    // Avaa ROOT-tiedostot
-    TFile* f1 = new TFile("histograms/SingleNeutrino2024_no_cut.root");   // MC
-    TFile* f2 = new TFile("histograms/ZeroBias2024_without_cut.root");     // Data
+// yritä ensin HCAL-cut profiileja, muuten no-cut
+auto getProf = [&](const char* name)->TProfile* {
+  return dynamic_cast<TProfile*>(file->Get(name));
+};
 
-    // MC-profiilit
-    auto h_H   = (TProfile*)f1->Get("h_frac_H"); // HCAL only
-    auto h_E   = (TProfile*)f1->Get("h_frac_E"); // ECAL only
-    auto h_MIP = (TProfile*)f1->Get("h_frac_MIP"); // MIP
-    auto h_EH  = (TProfile*)f1->Get("h_frac_EH"); // ECAL+HCAL
+const char* suffix = nullptr;
+TProfile *pH=nullptr,*pE=nullptr,*pMIP=nullptr,*pEH=nullptr;
 
-    // Data-profiilit
-    auto d_H   = (TProfile*)f2->Get("h_frac_H");
-    auto d_E   = (TProfile*)f2->Get("h_frac_E");
-    auto d_MIP = (TProfile*)f2->Get("h_frac_MIP");
-    auto d_EH  = (TProfile*)f2->Get("h_frac_EH");
-
-    // Luo pinotut histogrammit MC:lle ja datalle
-    auto stack1 = new THStack("stack1", "SingleNeutrino2024_no_cut (corrected);Track momentum p (GeV);Fraction");
-    auto stack2 = new THStack("stack2", "ZeroBias2024_without_cut (corrected);Track momentum p (GeV);Fraction");
-
-    // Apu-funktio: luo binitetyt histogrammit profiileista ja lisää ne stackiin
-    auto add_to_stack = [](THStack* stack, TProfile* hH, TProfile* hMIP, TProfile* hEH, TProfile* hE) {
-        auto hH_bin   = hH->ProjectionX(Form("%s_bin", hH->GetName()));
-        auto hMIP_bin = hMIP->ProjectionX(Form("%s_bin", hMIP->GetName()));
-        auto hEH_bin  = hEH->ProjectionX(Form("%s_bin", hEH->GetName()));
-        auto hE_bin   = hE->ProjectionX(Form("%s_bin", hE->GetName()));
-
-        // Aseta värit selkeästi (HCAL=pun, MIP=violetti, ECAL+HCAL=vihreä, ECAL=sininen)
-        hH_bin->SetFillColor(kRed);
-        hMIP_bin->SetFillColor(kMagenta);
-        hEH_bin->SetFillColor(kGreen+2);
-        hE_bin->SetFillColor(kBlue);
-
-        // Lisää oikeassa järjestyksessä: pohjalle HCAL, päälle ECAL
-        stack->Add(hH_bin);
-        stack->Add(hMIP_bin);
-        stack->Add(hEH_bin);
-        stack->Add(hE_bin);
-    };
-
-    // Lisää stackit
-    add_to_stack(stack1, h_H, h_MIP, h_EH, h_E); // MC
-    add_to_stack(stack2, d_H, d_MIP, d_EH, d_E); // Data
-
-    // Luo canvas ja jaa kahteen ruutuun
-    TCanvas* c = new TCanvas("c_compare", "Hadron fractions comparison", 1200, 600);
-    c->Divide(2, 1);
-
-    // === 1. Vasen ruutu: MC stacked + datapisteet ===
-    c->cd(1);
-    stack1->Draw("HIST");
-    stack1->SetMinimum(0);
-    stack1->SetMaximum(1.0); // fraktiot [0,1]
-
-
-    int nbins = d_H->GetNbinsX(); // oletetaan sama binitys
-
-     // Luo TGraphErrors objektit kullekin komponentille (datan päällepiirtoon)
-    TGraphErrors* g_H   = new TGraphErrors(nbins);
-    TGraphErrors* g_MIP = new TGraphErrors(nbins);
-    TGraphErrors* g_EH  = new TGraphErrors(nbins);
-    TGraphErrors* g_E   = new TGraphErrors(nbins);
-
-    // Lasketaan stacked datapisteet kumulatiivisesti joka komponentille
-    for (int i = 1; i <= nbins; ++i) {
-        double x = d_H->GetBinCenter(i);
-        double y_H   = d_H->GetBinContent(i);
-        double y_MIP = y_H   + d_MIP->GetBinContent(i);
-        double y_EH  = y_MIP + d_EH->GetBinContent(i);
-        double y_E   = y_EH  + d_E->GetBinContent(i);
-
-        double err_H   = d_H->GetBinError(i);
-        double err_MIP = d_MIP->GetBinError(i);
-        double err_EH  = d_EH->GetBinError(i);
-        double err_E   = d_E->GetBinError(i);
-
-        g_H  ->SetPoint(i-1, x, y_H);   g_H  ->SetPointError(i-1, 0, err_H);
-        g_MIP->SetPoint(i-1, x, y_MIP); g_MIP->SetPointError(i-1, 0, err_MIP);
-        g_EH ->SetPoint(i-1, x, y_EH);  g_EH ->SetPointError(i-1, 0, err_EH);
-        g_E  ->SetPoint(i-1, x, y_E);   g_E  ->SetPointError(i-1, 0, err_E);
-    }
-
-    // Mustat markerit
-    g_H  ->SetMarkerStyle(20); g_H  ->SetMarkerColor(kBlack); g_H  ->Draw("P SAME");
-    g_MIP->SetMarkerStyle(21); g_MIP->SetMarkerColor(kBlack); g_MIP->Draw("P SAME");
-    g_EH ->SetMarkerStyle(22); g_EH ->SetMarkerColor(kBlack); g_EH ->Draw("P SAME");
-    g_E  ->SetMarkerStyle(23); g_E  ->SetMarkerColor(kBlack); g_E  ->Draw("P SAME");
-
-    // Legenda vasempaan alakulmaan
-    auto leg1 = new TLegend(0.5, 0.15, 0.85, 0.43);
-    leg1->AddEntry((TObject*)0, "MC: stacked", "");
-    leg1->AddEntry(stack1->GetHists()->At(0), "HCAL only", "f");
-    leg1->AddEntry(stack1->GetHists()->At(1), "MIP", "f");
-    leg1->AddEntry(stack1->GetHists()->At(2), "ECAL+HCAL", "f");
-    leg1->AddEntry(stack1->GetHists()->At(3), "ECAL only", "f");
-    leg1->AddEntry((TObject*)0, "Data: markers", "");
-    leg1->AddEntry(g_H, "HCAL only", "p");
-    leg1->AddEntry(g_MIP, "MIP", "p");
-    leg1->AddEntry(g_EH, "ECAL+HCAL", "p");
-    leg1->AddEntry(g_E, "ECAL only", "p");
-    leg1->Draw();
-
-    // === 2. Oikea ruutu: datan stacked histogrammi ===
-    c->cd(2);
-    stack2->Draw("HIST");
-    stack2->SetMinimum(0);
-    stack2->SetMaximum(1.0);
-
-    // Legenda oikeaan alakulmaan
-    auto leg2 = new TLegend(0.7, 0.15, 0.9, 0.43);
-    leg2->AddEntry((TObject*)0, "Data: stacked", "");
-    leg2->AddEntry(stack2->GetHists()->At(0), "HCAL only", "f");
-    leg2->AddEntry(stack2->GetHists()->At(1), "MIP", "f");
-    leg2->AddEntry(stack2->GetHists()->At(2), "ECAL+HCAL", "f");
-    leg2->AddEntry(stack2->GetHists()->At(3), "ECAL only", "f");
-    leg2->Draw();
-
-    // Tallenna kuva
-    c->SaveAs("plots/stack_frac_comparison.png");
-
-    // Sulje tiedostot
-    f1->Close();
-    f2->Close();
+// 1) HCAL cut
+pH   = getProf("h_frac_H_cut");
+pE   = getProf("h_frac_E_cut");
+pMIP = getProf("h_frac_MIP_cut");
+pEH  = getProf("h_frac_EH_cut");
+if (pH && pE && pMIP && pEH) {
+  suffix = "cut";
+} else {
+  // 2) no cut
+  pH   = getProf("h_frac_H_all");
+  pE   = getProf("h_frac_E_all");
+  pMIP = getProf("h_frac_MIP_all");
+  pEH  = getProf("h_frac_EH_all");
+  if (pH && pE && pMIP && pEH) suffix = "all";
 }
 
+if (!suffix) {
+  std::cout << "[WARN] Could not find fraction profiles (*_cut nor *_all). Skipping stacked fraction plot.\n";
+} else {
+  // luodaan TH1D:t samoilla p-bineillä kuin analyysissä
+  const double trkPBins[] = {
+    3.0, 3.3, 3.6, 3.9, 4.2, 4.6, 5.0, 5.5, 6.0, 6.6,
+    7.2, 7.9, 8.6, 9.3, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
+    16.5, 18.0, 20.0, 22.0, 25.0, 30.0, 35.0, 40.0, 45.0, 55.0, 70.0, 130.0
+  };
+  const int nTrkPBins = sizeof(trkPBins)/sizeof(double) - 1;
+
+  auto makeH = [&](const char* n)->TH1D*{
+    TH1D* h = new TH1D(n, "Hadron fractions;p (GeV);Fraction", nTrkPBins, trkPBins);
+    h->SetDirectory(nullptr);
+    return h;
+  };
+
+  TH1D* h_H_bin   = makeH("h_H_bin");
+  TH1D* h_E_bin   = makeH("h_E_bin");
+  TH1D* h_MIP_bin = makeH("h_MIP_bin");
+  TH1D* h_EH_bin  = makeH("h_EH_bin");
+
+  // kopioi binikohdat TProfileista → TH1D
+  for (int i = 1; i <= nTrkPBins; ++i) {
+    h_H_bin  ->SetBinContent(i, pH  ->GetBinContent(i));
+    h_E_bin  ->SetBinContent(i, pE  ->GetBinContent(i));
+    h_MIP_bin->SetBinContent(i, pMIP->GetBinContent(i));
+    h_EH_bin ->SetBinContent(i, pEH ->GetBinContent(i));
+  }
+
+  // värit linjassa muun koodin kanssa
+  h_H_bin  ->SetFillColor(kRed+1);     h_H_bin  ->SetLineColor(kBlack);
+  h_E_bin  ->SetFillColor(kBlue+1);    h_E_bin  ->SetLineColor(kBlack);
+  h_MIP_bin->SetFillColor(kGreen+2);   h_MIP_bin->SetLineColor(kBlack);
+  h_EH_bin ->SetFillColor(kMagenta+2); h_EH_bin ->SetLineColor(kBlack);
+
+  THStack* hs = new THStack("hs",
+    Form("Hadron type fraction vs p (%s);Track momentum p (GeV);Fraction",
+         (std::string(suffix)=="cut" ? "HCAL E/E_{raw} > 0.9" : "no cut")));
+
+  // pinoamisjärjestys: valitse haluamasi – tämä toimii nätisti
+  hs->Add(h_MIP_bin);
+  hs->Add(h_EH_bin);
+  hs->Add(h_E_bin);
+  hs->Add(h_H_bin);
+
+  TCanvas* c_stack = new TCanvas(Form("c_stack_frac_%s", suffix), "", 900, 700);
+  c_stack->SetLogx();
+  hs->Draw("hist");
+  hs->SetMinimum(0.0);
+  hs->SetMaximum(1.05);
+  if (hs->GetXaxis()) hs->GetXaxis()->SetTitleSize(0.045);
+  if (hs->GetYaxis()) hs->GetYaxis()->SetTitleSize(0.045);
+
+  TLegend* leg_stack = new TLegend(0.70, 0.65, 0.88, 0.88);
+  leg_stack->AddEntry(h_H_bin,   "HCAL only",  "f");
+  leg_stack->AddEntry(h_E_bin,   "ECAL only",  "f");
+  leg_stack->AddEntry(h_MIP_bin, "MIP",        "f");
+  leg_stack->AddEntry(h_EH_bin,  "ECAL+HCAL",  "f");
+  leg_stack->Draw();
+
+  // huom. outdir jo sisältää /-lopun koodissasi; älä lisää toista
+  std::string fracDir = outdir + "fractions/";
+  gSystem->mkdir(fracDir.c_str(), true);
+
+  c_stack->SaveAs((fracDir + Form("fraction_stacked_%s.png", suffix)).c_str());
+  c_stack->Write();
 
 
+  delete leg_stack;
+  delete c_stack;
+}
 
-
-
-
-// Vertailee E/p-jakaumia datan ja simulaation välillä sekä fittaa huipun Crystal Ball -funktiolla
+// Suljetaan ROOT-tiedostot (ok)
+file->Close();
+}
 
 // ===============================================
-// Piirrä E/p-jakaumat datalle ja MC:lle sekä fittaa ne Crystal Ball -funktiolla
-// - Normalisoi jakaumat yksikköön (vertailukelpoisuus muodon osalta)
-// - Fittaa molemmat käyrät (MC ja Data) käyttäen Crystal Ball -funktiota
-// - Tulostaa fitted-parametrit: peak (mean), sigma ja skaalakerroin data/MC
-// - Visualisoi tulokset yhdessä kuvassa (histogrammit + fitit + annotaatiot)
-//
-// Syötteenä ROOT-tiedostot, joissa histogrammi "h_ep_iso"
+// E/p MC vs Data: hae 1D valmiina tai projisoi 2D:stä,
+// normalisoi, fittaa Crystal Ball, tallenna kuva.
 // ===============================================
-
 void plot_ep_overlay() {
-    // Avaa ROOT-tiedostot
-    TFile* f_mc = new TFile("histograms/SingleNeutrino2024_no_cut.root"); // MC
-    TFile* f_data = new TFile("histograms/ZeroBias2024_without_cut.root"); // Data
+  // ---- Valitse vertailu (vaihda näitä tarvittaessa) ----
+  constexpr bool useDefaultEp = true;   // true = Default (S2/S4), false = Raw (S1/S3)
+  constexpr bool useHCALCut   = false;  // true = HCAL cut (S1/S2),  false = no cut (S3/S4)
 
-    // Tarkistaa, että tiedostot ja histogrammit avattiin oikein/ovat kunnossa
-    if (!f_mc || !f_data || f_mc->IsZombie() || f_data->IsZombie()) {
-        std::cerr << "ERROR: Could not open input ROOT files." << std::endl;
-        return;
+  // Tiedostot (määritelty aiemmin ylhäällä)
+  const char* mc_path   = kFileMC;   // "histograms/SingleNeutrino2024.root"
+  const char* data_path = kFileData; // "histograms/ZeroBias2024_All.root"
+
+  // 1D-avaimet: default vs raw
+  const char* h1_key = useDefaultEp ? "h_ep_iso" : "h_raw_ep_iso";
+
+  // 2D-avaimet: S1–S4 (X=p, Y=E/p)
+  const char* h2_key =
+    useDefaultEp
+      ? (useHCALCut ? "h2_ep_vs_p_S2_def_cut" : "h2_ep_vs_p_S4_def_all")
+      : (useHCALCut ? "h2_ep_vs_p_S1_raw_cut" : "h2_ep_vs_p_S3_raw_all");
+
+  // ulostulohakemisto
+  std::string outdir = "plots2/";
+  gSystem->mkdir(outdir.c_str(), true);
+
+  // ---- Avaa tiedostot ----
+  TFile* f_mc   = TFile::Open(mc_path,   "READ");
+  TFile* f_data = TFile::Open(data_path, "READ");
+  if (!f_mc || !f_data || f_mc->IsZombie() || f_data->IsZombie()) {
+    std::cerr << "ERROR: Could not open input ROOT files." << std::endl;
+    if (f_mc)   f_mc->Close();
+    if (f_data) f_data->Close();
+    return;
+  }
+
+  auto fetch1D = [&](TFile* f) -> TH1D* {
+    if (auto* h1 = dynamic_cast<TH1D*>(f->Get(h1_key))) {
+      gROOT->cd(); // irrota tiedostosta
+      auto* c = (TH1D*)h1->Clone(Form("%s_clone_%p", h1_key, (void*)f));
+      return c;
     }
+    return nullptr;
+  };
 
-    // Hakee histogrammit nimellä "h_ep_iso" (oletetaan, että ne ovat olemassa molemmissa tiedostoissa)
-    // Jos histogrammeja ei löydy tai ne ovat tyhiä, tulostaa virheilmoituksen ja lopettaa funktion suorittamisen
-    auto h_mc = (TH1D*)f_mc->Get("h_ep_iso");
-    auto h_data = (TH1D*)f_data->Get("h_ep_iso");
+  auto build1Dfrom2D = [&](TFile* f, const char* key2d, const char* name) -> TH1D* {
+    auto* h2 = dynamic_cast<TH2D*>(f->Get(key2d));
+    if (!h2) return nullptr;
+    // Projisoi E/p (Y) koko p-alueen (X) yli
+    int xfirst = 1, xlast = h2->GetXaxis()->GetNbins();
+    gROOT->cd();
+    return h2->ProjectionY(name, xfirst, xlast);
+  };
 
-    if (!h_mc || !h_data) {
-        std::cerr << "ERROR: Could not find h_ep_iso in input files." << std::endl;
-        return;
-    }
+  // ---- Hae/johda 1D-jakaumat ----
+  TH1D* h_mc   = fetch1D(f_mc);
+  TH1D* h_data = fetch1D(f_data);
 
-    // Normalisointi (alue = 1)
-    h_mc->Scale(1.0 / h_mc->Integral());
-    h_data->Scale(1.0 / h_data->Integral());
+  if (!h_mc)   h_mc   = build1Dfrom2D(f_mc,   h2_key, "h_ep_overlay_mc");
+  if (!h_data) h_data = build1Dfrom2D(f_data, h2_key, "h_ep_overlay_data");
 
-    // Asetetaan histogrammien ulkoasu
-    h_mc->SetLineColor(kBlack);
-    h_mc->SetLineWidth(2);
-    h_mc->SetLineStyle(1);
-    h_mc->SetTitle("E/p comparison between MC and Data;E/p;Normalized entries");
+  if (!h_mc || !h_data) {
+    std::cerr << "ERROR: Could not obtain 1D E/p for MC or Data (checked "
+              << h1_key << " and " << h2_key << ")." << std::endl;
+    if (f_mc)   f_mc->Close();
+    if (f_data) f_data->Close();
+    return;
+  }
 
-    h_data->SetLineColor(kBlack);
-    h_data->SetLineWidth(2);
-    h_data->SetLineStyle(2); // katkoviiva
+  // rajat
+  h_mc  ->GetXaxis()->SetRangeUser(0.05, 2.5);
+  h_data->GetXaxis()->SetRangeUser(0.05, 2.5);
 
-    // Crystal Ball -fitit koko x-alueelle
-    TF1* fit_mc = new TF1("fit_mc", "crystalball", 0.0, 3.0);
-    TF1* fit_data = new TF1("fit_data", "crystalball", 0.0, 3.0);
+  // ---- Normalisoi muotoon ----
+  if (h_mc->Integral()   > 0) h_mc  ->Scale(1.0 / h_mc->Integral());
+  if (h_data->Integral() > 0) h_data->Scale(1.0 / h_data->Integral());
 
-     // Alkuarvot: [0]=norm, [1]=mean, [2]=sigma, [3]=alpha, [4]=n
-    fit_mc->SetParameters(1.0, 1.0, 0.1, 1.5, 2.0);
-    fit_data->SetParameters(1.0, 1.0, 0.1, 1.5, 2.0);
+  // tyyli
+  h_mc->SetLineColor(kBlack);  h_mc->SetLineWidth(2);  h_mc->SetLineStyle(1);
+  h_data->SetLineColor(kBlack);h_data->SetLineWidth(2);h_data->SetLineStyle(2);
 
-    // Fitataan histogrammit
-    // "RQ0" tarkoittaa, että fitataan ilman alussa olevaa nollaa ja ilman alussa olevaa nollapistettä
-    // Tämä on hyödyllistä, jos histogrammi ei ole nolla alussa
-    h_mc->Fit(fit_mc, "RQ0");
-    h_data->Fit(fit_data, "RQ0");
+  std::string titleTag = useDefaultEp ? "Default E/p" : "Raw E/p";
+  titleTag += useHCALCut ? " (HCAL E/E_{raw}>0.9)" : " (no cut)";
+  h_mc->SetTitle((titleTag + ";E/p;Normalized entries").c_str());
 
-    // Tulostaa fitted-parametrit ja skaalakertoinet
-    double peak_mc = fit_mc->GetParameter(1);
-    double sigma_mc = fit_mc->GetParameter(2);
-    double peak_data = fit_data->GetParameter(1);
-    double sigma_data = fit_data->GetParameter(2);
-    double scale = peak_data / peak_mc;
+  // ---- Crystal Ball -fitit ----
+  TF1* fit_mc   = new TF1("fit_mc",   "crystalball", 0.05, 2.5);
+  TF1* fit_data = new TF1("fit_data", "crystalball", 0.05, 2.5);
+  // [0]=norm, [1]=mean, [2]=sigma, [3]=alpha, [4]=n
+  fit_mc  ->SetParameters(1.0, 0.95, 0.12, 1.5, 3.0);
+  fit_data->SetParameters(1.0, 0.95, 0.12, 1.5, 3.0);
+  fit_mc  ->SetParLimits(1, 0.6, 1.3);  fit_mc  ->SetParLimits(2, 0.03, 0.5);
+  fit_data->SetParLimits(1, 0.6, 1.3);  fit_data->SetParLimits(2, 0.03, 0.5);
 
-    // Tulostaa fitted-parametrit konsoliin
-    std::cout << "=== E/p peak fit results (Crystal Ball) ===" << std::endl;
-    std::cout << "MC:    peak = " << peak_mc << ", sigma = " << sigma_mc << std::endl;
-    std::cout << "Data:  peak = " << peak_data << ", sigma = " << sigma_data << std::endl;
-    std::cout << "Scale factor (data/MC): " << scale << std::endl;
+  h_mc  ->Fit(fit_mc,   "RQ0");
+  h_data->Fit(fit_data, "RQ0");
 
-    // Kuvan piirto
-    TCanvas* c = new TCanvas("c_ep_overlay", "E/p MC vs Data", 800, 600);
-    h_mc->SetStats(0);
-    h_mc->GetXaxis()->SetRangeUser(0.0, 3.0);
-    h_mc->GetYaxis()->SetRangeUser(0.0, 0.3);
+  const double peak_mc    = fit_mc  ->GetParameter(1);
+  const double sigma_mc   = fit_mc  ->GetParameter(2);
+  const double peak_data  = fit_data->GetParameter(1);
+  const double sigma_data = fit_data->GetParameter(2);
+  const double scale      = (peak_mc != 0.0) ? (peak_data/peak_mc) : std::numeric_limits<double>::quiet_NaN();
 
-    h_mc->Draw("HIST"); // piirretään MC histogrammi
-    h_data->Draw("HIST SAME"); // piirretään Data histogrammi päälle
+  std::cout << "=== E/p peak fit results (Crystal Ball) ===\n"
+            << "MC:   peak = " << peak_mc   << ", sigma = " << sigma_mc   << "\n"
+            << "Data: peak = " << peak_data << ", sigma = " << sigma_data << "\n"
+            << "Scale factor (data/MC): " << scale << std::endl;
 
-    // Piirtää fitit
-    fit_mc->SetLineColor(kRed + 1);
-    fit_mc->SetLineWidth(2);
-    fit_mc->SetLineStyle(1);
-    fit_mc->Draw("SAME");
+  // ---- Piirto ----
+  TCanvas* c = new TCanvas("c_ep_overlay", "E/p MC vs Data", 900, 650);
+  const double ymax = 1.2 * std::max(h_mc->GetMaximum(), h_data->GetMaximum());
+  h_mc->GetYaxis()->SetRangeUser(0.0, ymax);
+  h_mc->Draw("HIST");
+  h_data->Draw("HIST SAME");
 
-    fit_data->SetLineColor(kGreen + 2);
-    fit_data->SetLineWidth(2);
-    fit_data->SetLineStyle(2);
-    fit_data->Draw("SAME");
+  fit_mc  ->SetLineColor(kRed + 1);   fit_mc  ->SetLineWidth(2); fit_mc  ->SetLineStyle(1);  fit_mc  ->Draw("SAME");
+  fit_data->SetLineColor(kGreen + 2); fit_data->SetLineWidth(2); fit_data->SetLineStyle(2);  fit_data->Draw("SAME");
 
-    // Legenda
-    auto leg = new TLegend(0.55, 0.72, 0.88, 0.88);
-    leg->SetBorderSize(0);
-    leg->AddEntry(h_mc, "SingleNeutrino (MC)", "l");
-    leg->AddEntry(h_data, "ZeroBias (Data)", "l");
-    leg->AddEntry(fit_mc, "MC fit (Crystal Ball)", "l");
-    leg->AddEntry(fit_data, "Data fit (Crystal Ball)", "l");
-    leg->Draw();
+  auto leg = new TLegend(0.55, 0.70, 0.88, 0.88);
+  leg->SetBorderSize(0);
+  leg->AddEntry(h_mc,   "SingleNeutrino (MC)", "l");
+  leg->AddEntry(h_data, "ZeroBias (Data)",     "l");
+  leg->AddEntry(fit_mc,   "MC fit (Crystal Ball)",   "l");
+  leg->AddEntry(fit_data, "Data fit (Crystal Ball)", "l");
+  leg->Draw();
 
-    // Tekstituloste fitted-arvoista
-    TLatex latex;
-    latex.SetNDC(); // Normalized Device Coordinates
-    latex.SetTextSize(0.032);
-    latex.DrawLatex(0.60, 0.48, Form("MC peak = %.3f", peak_mc));
-    latex.DrawLatex(0.60, 0.43, Form("Data peak = %.3f", peak_data));
-    latex.DrawLatex(0.60, 0.38, Form("Scale factor = %.3f", scale));
+  TLatex latex; latex.SetNDC(); latex.SetTextSize(0.032);
+  latex.DrawLatex(0.60, 0.52, Form("MC peak   = %.3f", peak_mc));
+  latex.DrawLatex(0.60, 0.47, Form("Data peak = %.3f", peak_data));
+  latex.DrawLatex(0.60, 0.42, Form("Scale     = %.3f", scale));
 
-    // Tallennetaan kuva
-    c->SaveAs("plots/ep_overlay_mc_vs_data_fit_CB_annotated.png");
+  // ulostulonimi tageista
+  std::string tagEp  = useDefaultEp ? "def"  : "raw";
+  std::string tagCut = useHCALCut   ? "cut"  : "nocut";
+  std::string overlayDir = outdir + "overlay/";
+  gSystem->mkdir(overlayDir.c_str(), true);
 
-    // Suljetaan tiedostot
-    f_mc->Close();
-    f_data->Close();
+  std::string png = overlayDir + "ep_overlay_mc_vs_data_" + tagEp + "_" + tagCut + "_fitCB.png";
+  c->SaveAs(png.c_str());
+
+
+  // siivous
+  delete leg;
+  delete c;
+  f_mc->Close();
+  f_data->Close();
+}
+
+void plot_stacked_comparison_raw(bool useHCALCut) {
+  // Valitse “no cut” (all) vai HCAL cut (>0.9)
+  
+  // Tiedostot (samat kuin muualla)
+  TFile* f_mc   = TFile::Open(kFileMC,   "READ");   // "histograms/SingleNeutrino2024.root"
+  TFile* f_data = TFile::Open(kFileData, "READ");   // "histograms/ZeroBias2024_All.root"
+  if (!f_mc || !f_data || f_mc->IsZombie() || f_data->IsZombie()) {
+    std::cerr << "[plot_stacked_comparison_raw] ERROR: cannot open MC/Data files.\n";
+    if (f_mc)   f_mc->Close();
+    if (f_data) f_data->Close();
+    return;
+  }
+
+  // Profiilien avaimet
+  const char* suf = useHCALCut ? "_cut" : "_all";
+  auto getProf = [&](TFile* f, const char* base)->TProfile* {
+    return dynamic_cast<TProfile*>(f->Get((std::string(base) + suf).c_str()));
+  };
+
+  // MC-profiilit
+  TProfile* h_H_mc   = getProf(f_mc,   "h_frac_H");
+  TProfile* h_E_mc   = getProf(f_mc,   "h_frac_E");
+  TProfile* h_MIP_mc = getProf(f_mc,   "h_frac_MIP");
+  TProfile* h_EH_mc  = getProf(f_mc,   "h_frac_EH");
+
+  // Data-profiilit
+  TProfile* h_H_dt   = getProf(f_data, "h_frac_H");
+  TProfile* h_E_dt   = getProf(f_data, "h_frac_E");
+  TProfile* h_MIP_dt = getProf(f_data, "h_frac_MIP");
+  TProfile* h_EH_dt  = getProf(f_data, "h_frac_EH");
+
+  if (!h_H_mc || !h_E_mc || !h_MIP_mc || !h_EH_mc ||
+      !h_H_dt || !h_E_dt || !h_MIP_dt || !h_EH_dt) {
+    std::cerr << "[plot_stacked_comparison_raw] ERROR: missing fraction profiles "
+                 "(expected h_frac_*" << suf << "). Did you run run_histograms?\n";
+    f_mc->Close(); f_data->Close();
+    return;
+  }
+
+  // Muunna TProfile -> TH1D MC-pinoutia varten (kopioi binisisällöt ja -virheet)
+ auto profToHist = [](TProfile* p, const char* hname)->TH1D* {
+  const TArrayD* xb = p->GetXaxis()->GetXbins();
+  TH1D* h = nullptr;
+  if (xb && xb->GetSize() > 0) {
+    h = new TH1D(hname, p->GetTitle(), p->GetNbinsX(), xb->GetArray());
+  } else {
+    h = new TH1D(hname, p->GetTitle(), p->GetNbinsX(),
+                 p->GetXaxis()->GetXmin(), p->GetXaxis()->GetXmax());
+  }
+  for (int i = 1; i <= p->GetNbinsX(); ++i) {
+    h->SetBinContent(i, p->GetBinContent(i));
+    h->SetBinError  (i, p->GetBinError(i));
+  }
+  h->GetXaxis()->SetTitle(p->GetXaxis()->GetTitle());
+  h->GetYaxis()->SetTitle("Fraction");
+  return h;
+};
+
+
+  TH1D* h_H_bin_mc   = profToHist(h_H_mc,   "h_H_bin_mc");
+  TH1D* h_E_bin_mc   = profToHist(h_E_mc,   "h_E_bin_mc");
+  TH1D* h_MIP_bin_mc = profToHist(h_MIP_mc, "h_MIP_bin_mc");
+  TH1D* h_EH_bin_mc  = profToHist(h_EH_mc,  "h_EH_bin_mc");
+
+  // Värit MC:lle (pidä samat kuin muualla projektissa)
+  h_H_bin_mc  ->SetFillColor(kRed+1);
+  h_E_bin_mc  ->SetFillColor(kBlue+1);
+  h_MIP_bin_mc->SetFillColor(kMagenta+2);
+  h_EH_bin_mc ->SetFillColor(kGreen+2);
+
+  // Luo pinottu histogrammi MC:lle
+  THStack* stack_mc = new THStack("stack_frac",
+    (std::string("Hadron type fraction ") + (useHCALCut ? "(HCAL E/E_{raw}>0.9)" : "(no cut)")
+     + ";Track momentum p (GeV);Fraction").c_str());
+
+  // Piirtojärjestys pohjalta ylöspäin
+  stack_mc->Add(h_E_bin_mc);
+  stack_mc->Add(h_MIP_bin_mc);
+  stack_mc->Add(h_EH_bin_mc);
+  stack_mc->Add(h_H_bin_mc);
+
+  // Luo data-markerit kumulatiivisina yläreunoina (ja kumulatiiviset virheet)
+  const int nb = h_H_dt->GetNbinsX();
+  auto makeCumGraph = [&](int markerStyle)->TGraphErrors* {
+    auto* g = new TGraphErrors(nb);
+    g->SetMarkerStyle(markerStyle);
+    g->SetMarkerColor(kBlack);
+    g->SetLineColor(kBlack);
+    return g;
+  };
+
+  TGraphErrors* g_H   = makeCumGraph(20);
+  TGraphErrors* g_MIP = makeCumGraph(21);
+  TGraphErrors* g_EH  = makeCumGraph(22);
+  TGraphErrors* g_E   = makeCumGraph(23);
+
+  for (int i=1;i<=nb;++i) {
+    const double x   = h_H_dt->GetBinCenter(i);
+
+    const double yH   = h_H_dt->GetBinContent(i);
+    const double yMIP = yH   + h_MIP_dt->GetBinContent(i);
+    const double yEH  = yMIP + h_EH_dt->GetBinContent(i);
+    const double yE   = yEH  + h_E_dt->GetBinContent(i);
+
+    const double eH   = h_H_dt->GetBinError(i);
+    const double eMIP = std::hypot(eH,  h_MIP_dt->GetBinError(i));
+    const double eEH  = std::hypot(eMIP,h_EH_dt ->GetBinError(i));
+    const double eE   = std::hypot(eEH, h_E_dt  ->GetBinError(i));
+
+    g_H  ->SetPoint(i-1, x, yH);   g_H  ->SetPointError(i-1, 0.0, eH);
+    g_MIP->SetPoint(i-1, x, yMIP); g_MIP->SetPointError(i-1, 0.0, eMIP);
+    g_EH ->SetPoint(i-1, x, yEH);  g_EH ->SetPointError(i-1, 0.0, eEH);
+    g_E  ->SetPoint(i-1, x, yE);   g_E  ->SetPointError(i-1, 0.0, eE);
+  }
+
+  // Piirto
+  std::string outdir = "plots2/";
+  gSystem->mkdir(outdir.c_str(), true);
+
+  TCanvas* c = new TCanvas("c_compare_frac", "Hadron type fraction", 900, 650);
+  c->SetLogx();
+  stack_mc->Draw("HIST");
+  stack_mc->SetMinimum(0.0);
+  stack_mc->SetMaximum(1.05);
+
+  // Piirrä data-markkerit
+  g_H  ->Draw("P SAME");
+  g_MIP->Draw("P SAME");
+  g_EH ->Draw("P SAME");
+  g_E  ->Draw("P SAME");
+
+  // Legenda
+  auto leg = new TLegend(0.52, 0.16, 0.87, 0.44);
+  leg->SetBorderSize(0);
+  leg->AddEntry((TObject*)nullptr, "MC: stacked", "");
+  // HUOM: viittaa suoraan lisättyihin histoihin (järjestys yllä)
+  leg->AddEntry(h_H_bin_mc,   "HCAL only",  "f");
+  leg->AddEntry(h_E_bin_mc,   "ECAL only",  "f");
+  leg->AddEntry(h_MIP_bin_mc, "MIP",        "f");
+  leg->AddEntry(h_EH_bin_mc,  "ECAL+HCAL",  "f");
+  leg->AddEntry((TObject*)nullptr, "Data: markers", "");
+  leg->AddEntry(g_H,   "HCAL only (cum.)", "p");
+  leg->AddEntry(g_MIP, "MIP (cum.)",       "p");
+  leg->AddEntry(g_EH,  "ECAL+HCAL (cum.)", "p");
+  leg->AddEntry(g_E,   "ECAL only (cum.)", "p");
+  leg->Draw();
+
+  // Talleta
+  std::string tag = useHCALCut ? "cut" : "nocut";
+  std::string fracDir = outdir + "fractions/";
+  gSystem->mkdir(fracDir.c_str(), true);
+
+  c->SaveAs((fracDir + "stack_frac_comparison_" + tag + ".png").c_str());
+
+
+  // Siivous
+  delete leg;
+  delete c;
+  f_mc->Close();
+  f_data->Close();
 }
 
 
+void compile_response_pages(const char* inpath,
+                            const char* outpdf,
+                            const std::vector<std::pair<double,double>>& pBins)
+{
+  gStyle->SetOptStat(0);
 
-// void plot_ep_scale_vs_pt() {
-//     const int nbins = 6;
-//     const double pt_bin_centers[nbins] = {4.5, 6.5, 8.5, 11.0, 15.0, 25.0}; // Säädä tarvittaessa
+  // Avaa input
+  std::unique_ptr<TFile> f(TFile::Open(inpath, "READ"));
+  if (!f || f->IsZombie()) {
+    std::cerr << "[compile_response_pages] Cannot open " << inpath << "\n";
+    return;
+  }
 
-//     std::vector<double> v_pt, v_scale, v_err;
+  // 4 skenaariota (kolumnit)
+  struct Scn {
+    const char* colTitle;  // otsikko ylös
+    const char* h2;        // ALL-histo (2D), X = p, Y = E/p
+    const char* h3prefix;  // HUOM: ei "isHad" tässä!
+    const char* h3suffix;  // loppuosa per-tyyppi-3D:n nimeen
+    bool useHcalCut;       // rajoitetaanko Y 0.9–2.5
+  } scn[4] = {
+    // S1: Raw E/p, HCAL-cut -> nimet: h3_resp_raw_p_isHad*_cut
+    {"Raw/p, HCAL cut",       "h2_ep_vs_p_S1_raw_cut",  "h3_resp_raw_p_",  "_cut", true },
 
-//     TFile* f_mc = TFile::Open("histograms/SingleNeutrino2024.root");
-//     TFile* f_data = TFile::Open("histograms/ZeroBias2024all2.root");
-//     if (!f_mc || !f_data || f_mc->IsZombie() || f_data->IsZombie()) {
-//         std::cerr << "ERROR: Could not open input ROOT files." << std::endl;
-//         return;
-//     }
+    // S2: Default E/p, HCAL-cut -> nimet: h3_resp_corr_p_isHad*  (EI _cut/_all -päätettä!)
+    {"Default/p, HCAL cut",   "h2_ep_vs_p_S2_def_cut",  "h3_resp_corr_p_", "",     true },
 
-//     for (int i = 0; i < nbins; ++i) {
-//         TString name = Form("h_ep_bin%d", i);
-//         auto h_mc = dynamic_cast<TH1D*>(f_mc->Get(name));
-//         auto h_data = dynamic_cast<TH1D*>(f_data->Get(name));
+    // S3: Raw E/p, no cut -> nimet: h3_resp_raw_p_isHad*_all
+    {"Raw/p, no cut",         "h2_ep_vs_p_S3_raw_all",  "h3_resp_raw_p_",  "_all", false},
 
-//         if (!h_mc || !h_data) {
-//             std::cerr << "WARNING: Histogram " << name << " not found. Skipping.\n";
-//             continue;
-//         }
+    // S4: Default E/p, no cut -> nimet: h3_resp_def_p_isHad*_all
+    {"Default/p, no cut",     "h2_ep_vs_p_S4_def_all",  "h3_resp_def_p_",  "_all", false}
+  };
 
-//         if (h_mc->Integral() == 0 || h_data->Integral() == 0) {
-//             std::cerr << "WARNING: Histogram " << name << " has zero integral. Skipping.\n";
-//             continue;
-//         }
-
-//         h_mc->Scale(1.0 / h_mc->Integral());
-//         h_data->Scale(1.0 / h_data->Integral());
-
-//         TF1 fit_mc("fit_mc", "crystalball", 0.0, 3.0);
-//         TF1 fit_data("fit_data", "crystalball", 0.0, 3.0);
-//         fit_mc.SetParameters(1.0, 1.0, 0.1, 1.5, 2.0);
-//         fit_data.SetParameters(1.0, 1.0, 0.1, 1.5, 2.0);
-
-//         h_mc->Fit(&fit_mc, "RQ0");
-//         h_data->Fit(&fit_data, "RQ0");
-
-//         double peak_mc = fit_mc.GetParameter(1);
-//         double peak_data = fit_data.GetParameter(1);
-//         double err_mc = fit_mc.GetParError(1);
-//         double err_data = fit_data.GetParError(1);
-
-//         double scale = peak_data / peak_mc;
-//         double scale_err = scale * std::sqrt(
-//             std::pow(err_data / peak_data, 2) + std::pow(err_mc / peak_mc, 2));
-
-//         v_pt.push_back(pt_bin_centers[i]);
-//         v_scale.push_back(scale);
-//         v_err.push_back(scale_err);
-//     }
-
-//     // Plotting
-//     TCanvas* c = new TCanvas("c_scale_vs_pt", "Scale factor vs. p_{T}", 800, 600);
-//     TGraphErrors* gr = new TGraphErrors(v_pt.size(), v_pt.data(), v_scale.data(), nullptr, v_err.data());
-//     gr->SetTitle("Data/MC scale factor vs. p_{T};p_{T} [GeV];Scale factor (Data / MC)");
-//     gr->SetMarkerStyle(20);
-//     gr->SetMarkerSize(1.2);
-//     gr->SetMarkerColor(kBlue + 1);
-//     gr->SetLineColor(kBlue + 1);
-//     gr->Draw("AP");
-
-//     c->SaveAs("plots/scale_factor_vs_pt.png");
-
-//     // Optional: save graph to file
-//     TFile* fout = TFile::Open("plots/scale_factors.root", "RECREATE");
-//     gr->Write("g_scale_vs_pt");
-//     fout->Close();
-
-//     f_mc->Close();
-//     f_data->Close();
-// }
+// Rivit: ALL + 4 kategoriaa (näissä "isHad*" säilyy)
+struct TypeRow { const char* key; const char* label; Color_t col; } rows[5] = {
+  {"",        "ALL",        kBlack     }, // ALL-rivi käyttää 2D:tä (h2)
+  {"isHadH",  "HCAL only",  kRed+1     },
+  {"isHadE",  "ECAL only",  kBlue+1    },
+  {"isHadMIP","MIP",        kGreen+2   },
+  {"isHadEH", "ECAL+HCAL",  kMagenta+2 }
+};
 
 
-void plot_stacked_comparison_raw() {
-    // Avaa ROOT-tiedostot
-    TFile* f1 = new TFile("histograms/SingleNeutrino2024_no_cut.root");   // MC
-    TFile* f2 = new TFile("histograms/ZeroBias2024_without_cut.root");     // Data
 
-    // MC-profiilit (raw)
-    auto h_H   = (TProfile*)f1->Get("h_raw_frac_H");
-    auto h_E   = (TProfile*)f1->Get("h_raw_frac_E");
-    auto h_MIP = (TProfile*)f1->Get("h_raw_frac_MIP");
-    auto h_EH  = (TProfile*)f1->Get("h_raw_frac_EH");
+  // Luo kansio outpdf:n polusta
+  std::string pdfPath = outpdf;
+  const char* outDir = gSystem->DirName(pdfPath.c_str());
+  gSystem->mkdir(outDir, true);
 
-    // Data-profiilit (raw)
-    auto d_H   = (TProfile*)f2->Get("h_raw_frac_H");
-    auto d_E   = (TProfile*)f2->Get("h_raw_frac_E");
-    auto d_MIP = (TProfile*)f2->Get("h_raw_frac_MIP");
-    auto d_EH  = (TProfile*)f2->Get("h_raw_frac_EH");
+  // Canvas: 5 riviä x 4 kolumnia
+  TCanvas c("c_comp", "Response compilation", 2000, 1400);
+  c.Divide(4, 5, 0.001, 0.001);
 
-    // Luo pinotut histogrammit MC:lle ja datalle
-    auto stack1 = new THStack("stack1_raw", "SingleNeutrino2024_no_cut (raw);Track momentum p (GeV);Fraction");
-    auto stack2 = new THStack("stack2_raw", "ZeroBias2024_without_cut (raw);Track momentum p (GeV);Fraction");
+  // Aloita monisivu-PDF
+  c.Print((pdfPath + "[").c_str()); // open
 
-    // Apufunktio profiilien konvertointiin ja värien asettamiseen
-    auto add_to_stack = [](THStack* stack, TProfile* hH, TProfile* hMIP, TProfile* hEH, TProfile* hE) {
-        auto hH_bin   = hH->ProjectionX(Form("%s_bin", hH->GetName()));
-        auto hMIP_bin = hMIP->ProjectionX(Form("%s_bin", hMIP->GetName()));
-        auto hEH_bin  = hEH->ProjectionX(Form("%s_bin", hEH->GetName()));
-        auto hE_bin   = hE->ProjectionX(Form("%s_bin", hE->GetName()));
+  // 1 sivu / p-alue
+  for (size_t ip=0; ip<pBins.size(); ++ip) {
+    const double pmin = pBins[ip].first;
+    const double pmax = pBins[ip].second;
 
-        hH_bin->SetFillColor(kRed);
-        hMIP_bin->SetFillColor(kMagenta);
-        hEH_bin->SetFillColor(kGreen + 2);
-        hE_bin->SetFillColor(kBlue);
+    for (int r=0; r<5; ++r) {
+      for (int j=0; j<4; ++j) {
+        c.cd(r*4 + (j+1));
 
-        stack->Add(hH_bin);
-        stack->Add(hMIP_bin);
-        stack->Add(hEH_bin);
-        stack->Add(hE_bin);
-    };
+        TH1* hdraw = nullptr;
 
-    // Lisää data stackeihin
-    add_to_stack(stack1, h_H, h_MIP, h_EH, h_E); // MC
-    add_to_stack(stack2, d_H, d_MIP, d_EH, d_E); // Data
+        if (r == 0) {
+          // ALL: 2D → projisoi Y (E/p)
+          TH2D* h2 = dynamic_cast<TH2D*>(f->Get(scn[j].h2));
+          if (!h2) { TLatex t; t.SetNDC(); t.DrawLatex(0.2,0.5,"[missing 2D]"); continue; }
+          const int x1 = h2->GetXaxis()->FindBin(pmin+1e-3);
+          const int x2 = h2->GetXaxis()->FindBin(pmax-1e-3);
+          TH1D* py = h2->ProjectionY(Form("py_%zu_%d_%d", ip, r, j), x1, x2);
+          if (!py || py->Integral()==0) { delete py; TLatex t; t.SetNDC(); t.DrawLatex(0.2,0.5,"[empty]"); continue; }
+          py->SetDirectory(nullptr);
+          py->SetLineColor(rows[r].col);
+          py->GetXaxis()->SetTitle("E/p");
+          py->GetYaxis()->SetTitle("Entries");
+          py->GetXaxis()->SetRangeUser(0.05, 2.5);
+          hdraw = py;
+        } else {
+          // Per-tyyppi: 3D → projisoi X (E/p)
+          std::string h3name = std::string(scn[j].h3prefix) + rows[r].key + scn[j].h3suffix;
+          TH3D* h3 = dynamic_cast<TH3D*>(f->Get(h3name.c_str()));
+          if (!h3) { TLatex t; t.SetNDC(); t.DrawLatex(0.2,0.5,"[missing 3D]"); continue; }
 
-    // Luo canvas ja jaa kahteen ruutuun
-    TCanvas* c = new TCanvas("c_compare_raw", "Hadron fractions comparison (raw)", 1200, 600);
-    c->Divide(2, 1);
+          int y1 = h3->GetYaxis()->GetFirst();
+          int y2 = h3->GetYaxis()->GetLast();
+          if (scn[j].useHcalCut) {
+            y1 = h3->GetYaxis()->FindBin(0.9001);
+            y2 = h3->GetYaxis()->FindBin(2.4999);
+          }
 
-    // === 1. Vasen ruutu: MC stacked + datan markerit ===
-    c->cd(1);
-    stack1->Draw("HIST");
-    stack1->SetMinimum(0);
-    stack1->SetMaximum(1.0);
+          const int z1 = h3->GetZaxis()->FindBin(pmin+1e-3);
+          const int z2 = h3->GetZaxis()->FindBin(pmax-1e-3);
+          TH1D* px = h3->ProjectionX(Form("px_%zu_%d_%d", ip, r, j), y1, y2, z1, z2);
+          if (!px || px->Integral()==0) { delete px; TLatex t; t.SetNDC(); t.DrawLatex(0.2,0.5,"[empty]"); continue; }
+          px->SetDirectory(nullptr);
+          px->SetLineColor(rows[r].col);
+          px->GetXaxis()->SetTitle("E/p");
+          px->GetYaxis()->SetTitle("Entries");
+          px->GetXaxis()->SetRangeUser(0.05, 2.5);
+          hdraw = px;
+        }
 
-    int nbins = d_H->GetNbinsX(); // oletetaan sama binitys
+        // Piirto (raaka jakauma, ei norm/fittiä)
+        hdraw->SetLineWidth(2);
+        hdraw->Draw("HIST");
 
-    // Luo TGraphErrors datan markeroinneille
-    TGraphErrors* g_H   = new TGraphErrors(nbins);
-    TGraphErrors* g_MIP = new TGraphErrors(nbins);
-    TGraphErrors* g_EH  = new TGraphErrors(nbins);
-    TGraphErrors* g_E   = new TGraphErrors(nbins);
+        // Riviteksti vasemmalle
+        if (j==0) {
+          TLatex lab; lab.SetNDC(); lab.SetTextSize(0.040);
+          lab.DrawLatex(0.10, 0.88, rows[r].label);
+        }
 
-    for (int i = 1; i <= nbins; ++i) {
-        double x = d_H->GetBinCenter(i);
-        double y_H   = d_H->GetBinContent(i);
-        double y_MIP = y_H   + d_MIP->GetBinContent(i);
-        double y_EH  = y_MIP + d_EH->GetBinContent(i);
-        double y_E   = y_EH  + d_E->GetBinContent(i);
+        // Kolumniotsikko + p-alue (piirrä lopuksi)
+        if (r==0) {
+          TLatex t; t.SetNDC(); t.SetTextAlign(22); t.SetTextSize(0.045);
+          t.DrawLatex(0.5, 0.94, scn[j].colTitle);
+          TLatex ptxt; ptxt.SetNDC(); ptxt.SetTextSize(0.035);
+          ptxt.DrawLatex(0.5, 0.88, Form("p = %.1f - %.1f GeV", pmin, pmax));
+        }
 
-        double err_H   = d_H->GetBinError(i);
-        double err_MIP = d_MIP->GetBinError(i);
-        double err_EH  = d_EH->GetBinError(i);
-        double err_E   = d_E->GetBinError(i);
-
-        g_H  ->SetPoint(i - 1, x, y_H);   g_H  ->SetPointError(i - 1, 0, err_H);
-        g_MIP->SetPoint(i - 1, x, y_MIP); g_MIP->SetPointError(i - 1, 0, err_MIP);
-        g_EH ->SetPoint(i - 1, x, y_EH);  g_EH ->SetPointError(i - 1, 0, err_EH);
-        g_E  ->SetPoint(i - 1, x, y_E);   g_E  ->SetPointError(i - 1, 0, err_E);
+        // Entries
+        TLatex ent; ent.SetNDC(); ent.SetTextSize(0.030);
+        ent.DrawLatex(0.78, 0.80, Form("N = %.0f", hdraw->GetEntries()));
+      }
     }
 
-    g_H  ->SetMarkerStyle(20); g_H  ->SetMarkerColor(kBlack); g_H  ->Draw("P SAME");
-    g_MIP->SetMarkerStyle(21); g_MIP->SetMarkerColor(kBlack); g_MIP->Draw("P SAME");
-    g_EH ->SetMarkerStyle(22); g_EH ->SetMarkerColor(kBlack); g_EH ->Draw("P SAME");
-    g_E  ->SetMarkerStyle(23); g_E  ->SetMarkerColor(kBlack); g_E  ->Draw("P SAME");
+    c.Update();
+    c.Print(pdfPath.c_str()); // yksi sivu ulos
+  }
 
-    // Legenda
-    auto leg1 = new TLegend(0.5, 0.15, 0.85, 0.43);
-    leg1->AddEntry((TObject*)0, "MC: stacked", "");
-    leg1->AddEntry(stack1->GetHists()->At(0), "HCAL only", "f");
-    leg1->AddEntry(stack1->GetHists()->At(1), "MIP", "f");
-    leg1->AddEntry(stack1->GetHists()->At(2), "ECAL+HCAL", "f");
-    leg1->AddEntry(stack1->GetHists()->At(3), "ECAL only", "f");
-    leg1->AddEntry((TObject*)0, "Data: markers", "");
-    leg1->AddEntry(g_H, "HCAL only", "p");
-    leg1->AddEntry(g_MIP, "MIP", "p");
-    leg1->AddEntry(g_EH, "ECAL+HCAL", "p");
-    leg1->AddEntry(g_E, "ECAL only", "p");
-    leg1->Draw();
-
-    // === 2. Oikea ruutu: Data stacked ===
-    c->cd(2);
-    stack2->Draw("HIST");
-    stack2->SetMinimum(0);
-    stack2->SetMaximum(1.0);
-
-    auto leg2 = new TLegend(0.7, 0.15, 0.9, 0.43);
-    leg2->AddEntry((TObject*)0, "Data: stacked", "");
-    leg2->AddEntry(stack2->GetHists()->At(0), "HCAL only", "f");
-    leg2->AddEntry(stack2->GetHists()->At(1), "MIP", "f");
-    leg2->AddEntry(stack2->GetHists()->At(2), "ECAL+HCAL", "f");
-    leg2->AddEntry(stack2->GetHists()->At(3), "ECAL only", "f");
-    leg2->Draw();
-
-    // Tallenna kuva
-    c->SaveAs("plots/stack_frac_comparison_raw.png");
-
-    // Sulje tiedostot
-    f1->Close();
-    f2->Close();
+  // Sulje PDF
+  c.Print((pdfPath + "]").c_str());
 }
 
+// --- 2D heatmapit log-x:llä + profiilit + monisivuinen PDF ---
+void make_h2_maps_logx_pdf(const char* inpath, const char* outdirTag) {
+  gStyle->SetPalette(kBird);
 
-int main() {
-    plot_stacked_comparison();
-    plot_ep_overlay();
-    //plot_ep_scale_vs_pt();
-    plot_stacked_comparison_raw();
-    return 0;
+  std::unique_ptr<TFile> f(TFile::Open(inpath, "READ"));
+  if (!f || f->IsZombie()) {
+    std::cerr << "[make_h2_maps_logx_pdf] cannot open " << inpath << "\n";
+    return;
+  }
+
+  // Ulostulokansio
+  std::string outdir = std::string("plots2/") + outdirTag + "/h2_maps_logx";
+  gSystem->mkdir(outdir.c_str(), true);
+
+  // PDF-tiedosto
+  std::string pdfPath = outdir + "/h2_maps_logx.pdf";
+  bool firstPage = true;
+
+  // Skenaariot
+  struct Scn {
+    const char* tag;
+    const char* h2_all;
+    const char* h3pref;
+    const char* h3suff;
+    bool hcalCut;
+  } S[4] = {
+    {"S1_raw_cut", "h2_ep_vs_p_S1_raw_cut", "h3_resp_raw_p_",  "_cut", true },
+    {"S2_def_cut", "h2_ep_vs_p_S2_def_cut", "h3_resp_corr_p_", "",     true },
+    {"S3_raw_all", "h2_ep_vs_p_S3_raw_all", "h3_resp_raw_p_",  "_all", false},
+    {"S4_def_all", "h2_ep_vs_p_S4_def_all", "h3_resp_def_p_",  "_all", false}
+  };
+
+  struct Row {
+    const char* key;
+    const char* label;
+  } R[5] = {
+    {"",       "ALL"},
+    {"isHadH", "HCAL only"},
+    {"isHadE", "ECAL only"},
+    {"isHadMIP","MIP"},
+    {"isHadEH","ECAL+HCAL"}
+  };
+
+  // 1) ALL-kartat
+  for (int j = 0; j < 4; ++j) {
+    if (auto* h2 = dynamic_cast<TH2D*>(f->Get(S[j].h2_all))) {
+      TCanvas c(Form("c_%s_ALL", S[j].tag), "", 900, 750);
+      c.SetRightMargin(0.12);
+      gPad->SetLogx();
+      h2->SetTitle(Form("%s - ALL;p (GeV);E/p", S[j].tag));
+      h2->Draw("COLZ");
+
+      // Profiili
+      auto* prof = h2->ProfileX(Form("prof_%s_ALL", S[j].tag));
+      if (prof) {
+        prof->SetLineWidth(2);
+        prof->Draw("SAME");
+      }
+
+      std::string pdfCmd = pdfPath + (firstPage ? "(" : "");
+      c.SaveAs(pdfCmd.c_str());
+      firstPage = false;
+    }
+  }
+
+  // 2) Per-tyyppi kartat
+  for (int r = 1; r < 5; ++r) { // skip R[0] = ALL
+    for (int j = 0; j < 4; ++j) {
+      std::string h3name = std::string(S[j].h3pref) + R[r].key + S[j].h3suff;
+      auto* h3 = dynamic_cast<TH3D*>(f->Get(h3name.c_str()));
+      if (!h3) continue;
+
+      int y1 = h3->GetYaxis()->GetFirst();
+      int y2 = h3->GetYaxis()->GetLast();
+      if (S[j].hcalCut) {
+        y1 = h3->GetYaxis()->FindBin(0.9001);
+        y2 = h3->GetYaxis()->FindBin(2.4999);
+      }
+      h3->GetYaxis()->SetRange(y1, y2);
+
+      auto* h2 = dynamic_cast<TH2D*>(h3->Project3D("zx")); // p vs E/p
+      if (!h2) {
+        h3->GetYaxis()->UnZoom();
+        continue;
+      }
+
+      h2->SetTitle(Form("%s - %s;p (GeV);E/p", S[j].tag, R[r].label));
+      TCanvas c(Form("c_%s_%s", S[j].tag, R[r].key), "", 900, 750);
+      c.SetRightMargin(0.12);
+      gPad->SetLogx();
+      h2->Draw("COLZ");
+
+      auto* prof = h2->ProfileX(Form("prof_%s_%s", S[j].tag, R[r].key));
+      if (prof) {
+        prof->SetLineWidth(2);
+        prof->Draw("SAME");
+      }
+
+      c.SaveAs(pdfPath.c_str());
+      h3->GetYaxis()->UnZoom();
+    }
+  }
+
+  // Sulje PDF
+  {
+    TCanvas ctmp;
+    std::string closeCmd = pdfPath + ")";
+    ctmp.SaveAs(closeCmd.c_str());
+  }
+}
+
+int main(int argc, char** argv) {
+  gROOT->SetBatch(kTRUE);
+
+  // Varmista ulostulohakemistot
+  gSystem->mkdir("plots2", true);    // kooste-PDF:t tänne
+
+  // koostesivuja varten valitut p-ikkunat
+  std::vector<std::pair<double,double>> pBins = {
+    {5.5, 6.0}, {10.0, 12.0}, {20.0, 22.0}
+  };
+
+  if (argc > 1) {
+    std::string a1 = argv[1];
+
+    if (a1 == "--compile-data") {
+      compile_response_pages(kFileData, "plots2/Data_ZeroBias2024/response_pages.pdf", pBins);
+      make_h2_maps_logx_pdf(kFileData, "Data_ZeroBias2024");
+    } else if (a1 == "--compile-mc") {
+      compile_response_pages(kFileMC,   "plots2/MC_SingleNeutrino2024/response_pages.pdf", pBins);
+      make_h2_maps_logx_pdf(kFileMC, "MC_SingleNeutrino2024");
+    } else if (a1 == "--compile-both") {
+      compile_response_pages(kFileData, "plots2/Data_ZeroBias2024/response_pages.pdf", pBins);
+      compile_response_pages(kFileMC,   "plots2/MC_SingleNeutrino2024/response_pages.pdf", pBins);
+      make_h2_maps_logx_pdf(kFileData, "Data_ZeroBias2024");
+      make_h2_maps_logx_pdf(kFileMC,   "MC_SingleNeutrino2024");
+    } else {
+      plot_histograms(a1);
+    }
+  } else {
+    compile_response_pages(kFileData, "plots2/Data_ZeroBias2024/response_pages.pdf", pBins);
+    compile_response_pages(kFileMC,   "plots2/MC_SingleNeutrino2024/response_pages.pdf", pBins);
+    make_h2_maps_logx_pdf(kFileData, "Data_ZeroBias2024");
+    make_h2_maps_logx_pdf(kFileMC,   "MC_SingleNeutrino2024");
+    plot_histograms("dummy");
+  }
+
+  return 0;
 }

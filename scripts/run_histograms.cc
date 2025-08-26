@@ -17,6 +17,11 @@
 #include <memory>
 #include <tuple>
 #include <chrono>
+#include <cmath>        // std::abs
+#include "TH1D.h"       // käytät TH1D:tä
+#include "TSystem.h"    // gSystem->Exec
+#include "TString.h"    // Form(...)
+#include "ROOT/RVec.hxx"
 
 // MÄÄRITELLÄÄN BINITYS pionien momentille (p = pT * cosh(η))
 // tarkka binitys pienillä p-arvioilla auttaa havaitsemaan responsen muutoksia
@@ -27,261 +32,392 @@ const double trkPBins[] = {
 };
 const int nTrkPBins = sizeof(trkPBins) / sizeof(double) - 1;
 
+// --- helper: normalisoi lista-rivi käyttökelpoiseksi poluksi/URL:ksi ---
+std::string NormalizeInputPath(const std::string &s) {
+    if (s.rfind("/store/user/", 0) == 0) {
+        // Poimi käyttäjätunnus
+        size_t p = std::string("/store/user/").size();
+        size_t slash = s.find('/', p);
+        std::string user = s.substr(p, slash - p);
+        std::string tail = s.substr(slash);
+        char first = user.empty() ? 'x' : user[0];
+
+        std::ostringstream oss;
+        oss << "root://eosuser.cern.ch//eos/user/"
+            << first << "/" << user << tail;
+        return oss.str();
+    }
+    // Muut store-polut globaaliin XRootD:hen
+    if (s.rfind("/store/", 0) == 0) {
+        return "root://cms-xrd-global.cern.ch" + s;
+    }
+    return s;
+}
+
 // PÄÄFUNKTIO: tekee histogrammit ja kirjoittaa ne tiedostoon
-void run_histograms(const char* listfile, const char* tag) {
+void run_histograms(const char* listfile, const char* tag, const char* outpath) {
     // aloitetaan ajanotto ajon kestolle
     auto start = std::chrono::high_resolution_clock::now();
 
-    // KÄYNNISTETÄÄN MONISÄIKEISYYS
-    // otetaan ROOT-kirjaston monisäikeisyys (threads) käyttöön
-    // eli ROOT käsittelee useita useita tapahtumia rinnakkain usealla
-    // CPU-ytimellä nopeuttaakseen analyysia
+    // monisäikeisyys
     ROOT::EnableImplicitMT();
 
-    // LUETAAN ROOT-tiedostojen polut listasta
-    // ja muodostetaan kokonaiset XRootD-osoitteet
+    // LUETAAN ROOT-tiedostojen polut listasta (robusti)
     std::ifstream infile(listfile);
+    if (!infile.is_open()) {
+      std::cerr << "[run_histograms] ERROR: cannot open list file: " << listfile << "\n";
+      return;
+    }
     std::string line;
     std::vector<std::string> files;
+    files.reserve(1000);
     while (std::getline(infile, line)) {
-        if (!line.empty())
-            files.push_back("root://hip-cms-se.csc.fi/" + line);
+        auto norm = NormalizeInputPath(line);
+        if (!norm.empty())
+            files.push_back(norm);
     }
 
     std::cout << "Processing " << files.size() << " files..." << std::endl;
 
-    // LUODAAN RDataFrame käyttäen "Events"-puuta useista tiedostoista
+    // LUODAAN RDataFrame ...
     ROOT::RDataFrame df("Events", files);
-    ROOT::RDF::Experimental::AddProgressBar(df); // näyttää etenemispalkin
 
-    // --- SUODATUS JA MUODOSTETTAVAT SUUREET ---
-    // valitaan kiinnostavat hiukkaset --> ladatut, isoloidut hadronit (pdgId == +/- 211)
-    auto df_iso = df
-        .Define("isoMask", [](const ROOT::VecOps::RVec<int>& pdgId,
-                               const ROOT::VecOps::RVec<bool>& isoFlag) {
-            ROOT::VecOps::RVec<bool> mask(pdgId.size());
-            for (size_t i = 0; i < pdgId.size(); ++i) {
-                mask[i] = (std::abs(pdgId[i]) == 211) && isoFlag[i];
-            }
-            return mask;
-        }, {"PFCand_pdgId", "PFCand_isIsolatedChargedHadron"})
+   
+// --- SUODATUS JA MUODOSTETTAVAT SUUREET ---
+// 1) Perusketju: isoloidut ±211-kandidaatit + E/p:t ja HCAL-korjaus
+auto df_base = df
+  .Define("isoMask",
+          [](const ROOT::VecOps::RVec<int>& pdgId,
+             const ROOT::VecOps::RVec<bool>& isoFlag) {
+            ROOT::VecOps::RVec<bool> m(pdgId.size());
+            for (size_t i = 0; i < pdgId.size(); ++i)
+              m[i] = (std::abs(pdgId[i]) == 211) && isoFlag[i];
+            return m;
+          },
+          {"PFCand_pdgId","PFCand_isIsolatedChargedHadron"})
+  .Filter("Sum(isoMask) > 0", "Has isolated charged pions")
 
-        // suodatetaan eventit, joissa on ainakin yksi isoloitu ladattu pionikandidaatti
-        .Filter("Sum(isoMask) > 0", "Has isolated charged pions")
+  // Isoloitujen kenttien poiminta
+  .Define("ptIso",      "PFCand_pt[isoMask]")
+  .Define("etaIso",     "PFCand_eta[isoMask]")
+  .Define("pIso",       "ptIso * cosh(etaIso)")
+  .Define("hcalIso",    "PFCand_hcalEnergy[isoMask]")
+  .Define("ecalIso",    "PFCand_ecalEnergy[isoMask]")
+  .Define("rawEcalIso", "PFCand_rawEcalEnergy[isoMask]")
+  .Define("rawHcalIso", "PFCand_rawHcalEnergy[isoMask]")
 
-        // poimitaan vain isoloiduille pT, eta, p ja energiatiedot
-        .Define("ptIso", "PFCand_pt[isoMask]")
-        .Define("etaIso", "PFCand_eta[isoMask]")
-        .Define("pIso", "ptIso * cosh(etaIso)")
-        .Define("ecalIso", "PFCand_ecalEnergy[isoMask]")
-        .Define("hcalIso", "PFCand_hcalEnergy[isoMask]")
-        .Define("rawEcalIso", "PFCand_rawEcalEnergy[isoMask]")
-        .Define("rawHcalIso", "PFCand_rawHcalEnergy[isoMask]")
+  // Summat ja E/p (vartioi nollajaot)
+  .Define("detIsoE",     "ecalIso + hcalIso")
+  .Define("rawDetIsoE",  "rawEcalIso + rawHcalIso")
+  .Define("ep_def_all",  "ROOT::VecOps::Where(pIso > 0, (ecalIso + hcalIso)/pIso, -1.0)")
+  .Define("ep_raw_all",  "ROOT::VecOps::Where(pIso > 0, (rawEcalIso + rawHcalIso)/pIso, -1.0)")
 
-        // johdetut suureet --> detektorielementtien kokonaisenergia, E/p ja fraktio-osuudet
-        .Define("detIsoE", "ecalIso + hcalIso")
-        .Define("rawDetIsoE", "rawEcalIso + rawHcalIso")
-        .Define("epIso", "detIsoE / pIso")
-        .Define("rawEpIso", "rawDetIsoE / pIso")
-        .Define("fracEcal", "ecalIso / pIso")
-        .Define("fracHcal", "hcalIso / pIso")
+  // HCAL E/E_raw ja leikkausmaski
+  .Define("hcalCorrFactor", "ROOT::VecOps::Where(rawHcalIso > 0, hcalIso/rawHcalIso, -1.0)")
+  .Define("passHCAL",       "hcalCorrFactor > 0.9")
 
-        // luokitellaan hiukkanen hadronityypin mukaan ECAL/HCAL-energian perusteella
-        .Define("isHadH", "ROOT::VecOps::RVec<bool> v; for (size_t i = 0; i < fracEcal.size(); ++i) v.push_back((fracEcal[i] <= 0) && (fracHcal[i] > 0)); return v;")
-        .Define("isHadE", "ROOT::VecOps::RVec<bool> v; for (size_t i = 0; i < fracEcal.size(); ++i) v.push_back((fracEcal[i] > 0) && (fracHcal[i] <= 0)); return v;")
-        .Define("isHadMIP", "ROOT::VecOps::RVec<bool> v; for (size_t i = 0; i < fracEcal.size(); ++i) v.push_back((fracEcal[i] > 0) && (fracEcal[i] * pIso[i] < 1) && (fracHcal[i] > 0)); return v;")
-        .Define("isHadEH", "ROOT::VecOps::RVec<bool> v; for (size_t i = 0; i < fracEcal.size(); ++i) v.push_back((fracEcal[i] > 0) && (fracEcal[i] * pIso[i] >= 1) && (fracHcal[i] > 0)); return v;")
+  // Leikatut E/p:t S1/S2-skenaarioille (maskatut arvot jätetään -1.0)
+  .Define("ep_def_cut", "ROOT::VecOps::Where(passHCAL, ep_def_all, -1.0)") // S2
+  .Define("ep_raw_cut", "ROOT::VecOps::Where(passHCAL, ep_raw_all, -1.0)"); // S1
 
-        // määritellään HCAL-korjauskerroin ja valmiiksi maskatut E/p-arvot eri tyypeille
-        .Define("hcalCorrFactor", "hcalIso / rawHcalIso")
-        .Define("response", "detIsoE / pIso")
-        .Define("rawEpIso_H", "ROOT::VecOps::Where(isHadH, rawEpIso, -1.0)")
-        .Define("rawEpIso_E", "ROOT::VecOps::Where(isHadE, rawEpIso, -1.0)")
-        .Define("rawEpIso_MIP", "ROOT::VecOps::Where(isHadMIP, rawEpIso, -1.0)")
-        .Define("rawEpIso_EH", "ROOT::VecOps::Where(isHadEH, rawEpIso, -1.0)");
+// 2) Hadronimaskit + niistä johdetut vektorit (yhtenä ketjuna)
+auto df_iso = df_base
+  .Define("fracEcal", "ecalIso / pIso")
+  .Define("fracHcal", "hcalIso / pIso")
 
+  // Hadronityypit (bool-vektorit)
+  .Define("isHadH",   "ROOT::VecOps::RVec<bool> v; "
+                      "v.reserve(fracEcal.size()); "
+                      "for (size_t i=0;i<fracEcal.size();++i) "
+                      "  v.push_back((fracEcal[i] <= 0) && (fracHcal[i] > 0)); "
+                      "return v;")
+  .Define("isHadE",   "ROOT::VecOps::RVec<bool> v; "
+                      "v.reserve(fracEcal.size()); "
+                      "for (size_t i=0;i<fracEcal.size();++i) "
+                      "  v.push_back((fracEcal[i] > 0) && (fracHcal[i] <= 0)); "
+                      "return v;")
+  .Define("isHadMIP", "ROOT::VecOps::RVec<bool> v; "
+                      "v.reserve(fracEcal.size()); "
+                      "for (size_t i=0;i<fracEcal.size();++i) "
+                      "  v.push_back((fracEcal[i] > 0) && (fracEcal[i]*pIso[i] < 1) && (fracHcal[i] > 0)); "
+                      "return v;")
+  .Define("isHadEH",  "ROOT::VecOps::RVec<bool> v; "
+                      "v.reserve(fracEcal.size()); "
+                      "for (size_t i=0;i<fracEcal.size();++i) "
+                      "  v.push_back((fracEcal[i] > 0) && (fracEcal[i]*pIso[i] >= 1) && (fracHcal[i] > 0)); "
+                      "return v;")
 
+  // bool -> float (fraktioprofiileja varten)
+  .Define("isHadH_float",    "ROOT::VecOps::RVec<float> v; v.reserve(isHadH.size()); "
+                             "for (auto x : isHadH)    v.push_back(x ? 1.f : 0.f); return v;")
+  .Define("isHadE_float",    "ROOT::VecOps::RVec<float> v; v.reserve(isHadE.size()); "
+                             "for (auto x : isHadE)    v.push_back(x ? 1.f : 0.f); return v;")
+  .Define("isHadMIP_float",  "ROOT::VecOps::RVec<float> v; v.reserve(isHadMIP.size()); "
+                             "for (auto x : isHadMIP)  v.push_back(x ? 1.f : 0.f); return v;")
+  .Define("isHadEH_float",   "ROOT::VecOps::RVec<float> v; v.reserve(isHadEH.size()); "
+                             "for (auto x : isHadEH)   v.push_back(x ? 1.f : 0.f); return v;")
 
+  // Leikkausversiot (suodata sekä x että y passHCAL:lla)
+  .Define("pIso_cut",           "pIso[passHCAL]")
+  .Define("isHadH_float_cut",   "isHadH_float[passHCAL]")
+  .Define("isHadE_float_cut",   "isHadE_float[passHCAL]")
+  .Define("isHadMIP_float_cut", "isHadMIP_float[passHCAL]")
+  .Define("isHadEH_float_cut",  "isHadEH_float[passHCAL]")
 
+  // Raw E/p maskattuna hadronityypeittäin (1D-jakaumia varten)
+  .Define("rawEpIso_H",   "ROOT::VecOps::Where(isHadH,   ep_raw_all, -1.0)")
+  .Define("rawEpIso_E",   "ROOT::VecOps::Where(isHadE,   ep_raw_all, -1.0)")
+  .Define("rawEpIso_MIP", "ROOT::VecOps::Where(isHadMIP, ep_raw_all, -1.0)")
+  .Define("rawEpIso_EH",  "ROOT::VecOps::Where(isHadEH,  ep_raw_all, -1.0)");
 
+// 2b) Per-tyyppiset maskit HCAL-cutilla + viipaleet (X=E/p default, Y=HCALcorr, Z=p)
+auto df_iso2 = df_iso
+  // yhdistelmämaskit: hadronityyppi AND passHCAL
+  .Define("mask_H_cut", R"(
+    ROOT::VecOps::RVec<char> m(isHadH.size());
+    for (size_t i = 0; i < m.size(); ++i) m[i] = isHadH[i] && passHCAL[i];
+    return m;
+  )")
+  .Define("mask_E_cut", R"(
+    ROOT::VecOps::RVec<char> m(isHadE.size());
+    for (size_t i = 0; i < m.size(); ++i) m[i] = isHadE[i] && passHCAL[i];
+    return m;
+  )")
+  .Define("mask_MIP_cut", R"(
+    ROOT::VecOps::RVec<char> m(isHadMIP.size());
+    for (size_t i = 0; i < m.size(); ++i) m[i] = isHadMIP[i] && passHCAL[i];
+    return m;
+  )")
+  .Define("mask_EH_cut", R"(
+    ROOT::VecOps::RVec<char> m(isHadEH.size());
+    for (size_t i = 0; i < m.size(); ++i) m[i] = isHadEH[i] && passHCAL[i];
+    return m;
+  )")
 
-    // ---- CUTTI -----
-    // RAJATAAN DATA: otetaan vain ne tapahtumat, joissa HCAL-korjaus E_HCAL / raw_E_HCAL > 0.9
-    // tämä suodattaa pois tapahtumat, joissa HCAL-kalibraatio epäonnistui pahasti
-    //auto df_cut = df_iso.Filter("All(hcalCorrFactor > 0.9)", "Cut on E_HCAL/rawE_HCAL > 0.9");
+  // viipaleet: X=E/p (default), Y=HCALcorr, Z=p  (HCAL cut)
+  .Define("ep_def_H_cut",   "ep_def_all[mask_H_cut]")
+  .Define("ep_def_E_cut",   "ep_def_all[mask_E_cut]")
+  .Define("ep_def_MIP_cut", "ep_def_all[mask_MIP_cut]")
+  .Define("ep_def_EH_cut",  "ep_def_all[mask_EH_cut]")
 
-    // // jaotellaan leikatut datasetit hadronityypeittäin
-    // auto df_cut_H   = df_cut.Filter("Sum(isHadH) > 0");
-    // auto df_cut_E   = df_cut.Filter("Sum(isHadE) > 0");
-    // auto df_cut_MIP = df_cut.Filter("Sum(isHadMIP) > 0");
-    // auto df_cut_EH  = df_cut.Filter("Sum(isHadEH) > 0");
-    // --- CUTIN KOMMENTOITI LOPPUU
+  .Define("hcal_H_cut",     "hcalCorrFactor[mask_H_cut]")
+  .Define("hcal_E_cut",     "hcalCorrFactor[mask_E_cut]")
+  .Define("hcal_MIP_cut",   "hcalCorrFactor[mask_MIP_cut]")
+  .Define("hcal_EH_cut",    "hcalCorrFactor[mask_EH_cut]")
 
-    // luodaan vektorit, joihin kerätään eri tyyppiset histogrammit
-    std::vector<ROOT::RDF::RResultPtr<TH1D>> h1_histos;
-    std::vector<ROOT::RDF::RResultPtr<TH2D>> h2_histos;
-    std::vector<ROOT::RDF::RResultPtr<TProfile>> profiles;
-    std::vector<ROOT::RDF::RResultPtr<TH3D>> h3_histos;
+  .Define("p_H_cut",        "pIso[mask_H_cut]")
+  .Define("p_E_cut",        "pIso[mask_E_cut]")
+  .Define("p_MIP_cut",      "pIso[mask_MIP_cut]")
+  .Define("p_EH_cut",       "pIso[mask_EH_cut]");
 
-    // --- 2D-HISTOGRAMMIT: E/p vs. p ja raw E/p vs p ---
-    h2_histos.push_back(df_iso.Histo2D({"h2_ep_vs_p_iso", "E/p vs p; p (GeV); E/p", nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "epIso"));
-    h2_histos.push_back(df_iso.Histo2D({"h2_raw_ep_vs_p_iso", "Raw E/p vs p; p (GeV); Raw E/p", nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "rawEpIso"));
-    // filteröidyllä datalla
-    //h2_histos.push_back(df_cut.Histo2D({"h2_ep_vs_p_cut", "E/p vs p (cut); p (GeV); E/p", nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "epIso"));
+// 2c) Per-tyyppiset maskit ILMAN HCAL-cuttia + viipaleet (X=E/p default, Y=HCALcorr, Z=p)
+auto df_iso_nocut = df_iso
+  // yhdistelmämaskit: vain hadronityyppi (ei passHCAL)
+  .Define("mask_H_all", R"(
+    ROOT::VecOps::RVec<char> m(isHadH.size());
+    for (size_t i = 0; i < m.size(); ++i) m[i] = isHadH[i];
+    return m;
+  )")
+  .Define("mask_E_all", R"(
+    ROOT::VecOps::RVec<char> m(isHadE.size());
+    for (size_t i = 0; i < m.size(); ++i) m[i] = isHadE[i];
+    return m;
+  )")
+  .Define("mask_MIP_all", R"(
+    ROOT::VecOps::RVec<char> m(isHadMIP.size());
+    for (size_t i = 0; i < m.size(); ++i) m[i] = isHadMIP[i];
+    return m;
+  )")
+  .Define("mask_EH_all", R"(
+    ROOT::VecOps::RVec<char> m(isHadEH.size());
+    for (size_t i = 0; i < m.size(); ++i) m[i] = isHadEH[i];
+    return m;
+  )")
 
-    // PROFIILIT: <E/p> vs. p lineaarisella ja epälineaarisella binityksellä
-    profiles.push_back(df_iso.Profile1D({"prof_ep_vs_p_iso", "<E/p> vs p; p (GeV); E/p", 50, 0, 10}, "pIso", "epIso"));
-    profiles.push_back(df_iso.Profile1D({"prof_raw_ep_vs_p_iso", "<Raw E/p> vs p; p (GeV); Raw E/p", 50, 0, 10}, "pIso", "rawEpIso"));
-    profiles.push_back(df_iso.Profile1D({"prof_ep_vs_p_iso_custom", "<E/p> vs p (custom); p (GeV); E/p", nTrkPBins, trkPBins}, "pIso", "epIso"));
-    profiles.push_back(df_iso.Profile1D({"prof_raw_ep_vs_p_iso_custom", "<Raw E/p> vs p (custom); p (GeV); Raw E/p", nTrkPBins, trkPBins}, "pIso", "rawEpIso"));
-    // uusi profiili filteröidyllä datalla
-    //profiles.push_back(df_cut.Profile1D({"prof_ep_vs_p_cut", "<E/p> vs p (cut); p (GeV); E/p", nTrkPBins, trkPBins}, "pIso", "epIso"));
+  // viipaleet: X=E/p (default), Y=HCALcorr, Z=p  (ilman leikkausta)
+  .Define("ep_def_H_all",   "ep_def_all[mask_H_all]")
+  .Define("ep_def_E_all",   "ep_def_all[mask_E_all]")
+  .Define("ep_def_MIP_all", "ep_def_all[mask_MIP_all]")
+  .Define("ep_def_EH_all",  "ep_def_all[mask_EH_all]")
 
-    // --- 1D-HISTOGRAMMIT perusjakaumille (pT, eta, E/p jne) ---
-    h1_histos.push_back(df_iso.Histo1D({"h_pt_iso", "p_{T} distribution; p_{T} (GeV); Events", 50, 0, 100}, "ptIso"));
-    h1_histos.push_back(df_iso.Histo1D({"h_eta_iso", "#eta distribution; #eta; Events", 50, -1.3, 1.3}, "etaIso"));
-    h1_histos.push_back(df_iso.Histo1D({"h_ep_iso", "E/p distribution; E/p; Events", 50, 0, 5}, "epIso"));
-    h1_histos.push_back(df_iso.Histo1D({"h_raw_ep_iso", "Raw E/p distribution; E/p; Events", 50, 0, 5}, "rawEpIso"));
+  .Define("hcal_H_all",     "hcalCorrFactor[mask_H_all]")
+  .Define("hcal_E_all",     "hcalCorrFactor[mask_E_all]")
+  .Define("hcal_MIP_all",   "hcalCorrFactor[mask_MIP_all]")
+  .Define("hcal_EH_all",    "hcalCorrFactor[mask_EH_all]")
 
-    // --- 1D-HISTOGRAMMIT eri hadronityypeille ---
-    h1_histos.push_back(df_iso.Filter("Sum(isHadH) > 0").Histo1D({"h_ep_isHadH", "E/p: HCAL only; E/p; Events", 50, 0, 2.5}, "epIso"));
-    h1_histos.push_back(df_iso.Filter("Sum(isHadE) > 0").Histo1D({"h_ep_isHadE", "E/p: ECAL only; E/p; Events", 50, 0, 2.5}, "epIso"));
-    h1_histos.push_back(df_iso.Filter("Sum(isHadMIP) > 0").Histo1D({"h_ep_isHadMIP", "E/p: MIP; E/p; Events", 50, 0, 2.5}, "epIso"));
-    h1_histos.push_back(df_iso.Filter("Sum(isHadEH) > 0").Histo1D({"h_ep_isHadEH", "E/p: ECAL+HCAL; E/p; Events", 50, 0, 2.5}, "epIso"));
+  .Define("p_H_all",        "pIso[mask_H_all]")
+  .Define("p_E_all",        "pIso[mask_E_all]")
+  .Define("p_MIP_all",      "pIso[mask_MIP_all]")
+  .Define("p_EH_all",       "pIso[mask_EH_all]");
 
-    // // --- RAJATUT pT-JAKAUMAT HCAL-only-tyypille (esim. fitted-mean-analyysia varten) ---
-    // // Low p: 5.5–6.0 GeV
-    // auto df_cut_H_low = df_cut_H.Filter("All(pIso > 5.5 && pIso < 6.0)");
-    // auto h1_H_low = df_cut_H_low.Histo1D({"h_ep_cut_H_low", "E/p: HCAL only (low p); E/p; Events", 50, 0, 2.5}, "epIso");
-    // // Medium p: 10–12 GeV
-    // auto df_cut_H_medium = df_cut_H.Filter("All(pIso > 10.0 && pIso < 12.0)");
-    // auto h1_H_medium = df_cut_H_medium.Histo1D({"h_ep_cut_H_medium", "E/p: HCAL only (medium p); E/p; Events", 50, 0, 2.5}, "epIso");
-    // // High p: 20–22 GeV
-    // auto df_cut_H_high = df_cut_H.Filter("All(pIso > 20.0 && pIso < 22.0)");
-    // auto h1_H_high = df_cut_H_high.Histo1D({"h_ep_cut_H_high", "E/p: HCAL only (high p); E/p; Events", 50, 0, 2.5}, "epIso");
+// RAW-versiot (no cut): vaihdetaan X-akseleiksi ep_raw_all[..]
+auto df_iso_raw_all = df_iso_nocut
+  .Define("ep_raw_H_all",   "ep_raw_all[mask_H_all]")
+  .Define("ep_raw_E_all",   "ep_raw_all[mask_E_all]")
+  .Define("ep_raw_MIP_all", "ep_raw_all[mask_MIP_all]")
+  .Define("ep_raw_EH_all",  "ep_raw_all[mask_EH_all]");
 
-    // h1_histos.push_back(h1_H_low);
-    // h1_histos.push_back(h1_H_medium);
-    // h1_histos.push_back(h1_H_high);
-
-    // --- RAW E/p -JAKAUMAT eri hadronityypeille (maskatuilla arvoilla) ---
-    h1_histos.push_back(df_iso.Histo1D({"h_raw_ep_isHadH", "Raw E/p: HCAL only; E/p; Events", 40, 0, 2.5}, "rawEpIso_H"));
-    h1_histos.push_back(df_iso.Histo1D({"h_raw_ep_isHadE", "Raw E/p: ECAL only; E/p; Events", 40, 0, 2.5}, "rawEpIso_E"));
-    h1_histos.push_back(df_iso.Histo1D({"h_raw_ep_isHadMIP", "Raw E/p: MIP; E/p; Events", 40, 0, 2.5}, "rawEpIso_MIP"));
-    h1_histos.push_back(df_iso.Histo1D({"h_raw_ep_isHadEH", "Raw E/p: ECAL+HCAL; E/p; Events", 40, 0, 2.5}, "rawEpIso_EH"));
-
-    
-    // --- 3D-HISTOT: E/p vs. E_HCAL/E_HCAL^raw vs. p eri hadronityypeille ---
-    std::vector<std::tuple<std::string, std::string>> hadronTypes = {
-        {"isHadH", "HCAL only"},
-        {"isHadE", "ECAL only"},
-        {"isHadMIP", "MIP"},
-        {"isHadEH", "ECAL+HCAL"}
-    };
-
-    for (const auto& [mask, label] : hadronTypes) {
-        std::string name3d = "h3_resp_corr_p_" + mask;
-        std::string title3d = "E/p vs E_{HCAL}/E_{HCAL}^{raw} (" + label + ");E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)";
-        h3_histos.push_back(df_iso
-            .Filter("Sum(" + mask + ") > 0 && Sum(rawHcalIso) > 0")
-            .Histo3D({name3d.c_str(), title3d.c_str(),
-                     50, 0.0, 2.5,
-                     50, 0.0, 2.5,
-                     30, 0.0, 100.0},
-                     "response", "hcalCorrFactor", "pIso"));
-    }
-
-// --- AVATAAN ROOT-TIEDOSTO TULOSTUSTA VARTEN ---
-std::string filename = "histograms/" + std::string(tag) + ".root";
-TFile out(filename.c_str(), "RECREATE");
-
-// // määritellään maskit float-muodossa fraktioprofiileja varten
-// auto df_frac = df_cut
-//     .Define("isHadH_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadH) v.push_back(x ? 1.0f : 0.0f); return v;")
-//     .Define("isHadE_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadE) v.push_back(x ? 1.0f : 0.0f); return v;")
-//     .Define("isHadMIP_float", "ROOT::VecOps::RVec<float> v; for (auto x : isHadMIP) v.push_back(x ? 1.0f : 0.0f); return v;")
-//     .Define("isHadEH_float",  "ROOT::VecOps::RVec<float> v; for (auto x : isHadEH) v.push_back(x ? 1.0f : 0.0f); return v;");
-
-
-// --- muunnetaan bool-maskit float-arvoiksi fraktioprofiileja varten (0.0 tai 1.0) ---
-auto df_frac = df_iso
-    .Define("isHadH_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadH) v.push_back(x ? 1.0f : 0.0f); return v;")
-    .Define("isHadE_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadE) v.push_back(x ? 1.0f : 0.0f); return v;")
-    .Define("isHadMIP_float", "ROOT::VecOps::RVec<float> v; for (auto x : isHadMIP) v.push_back(x ? 1.0f : 0.0f); return v;")
-    .Define("isHadEH_float",  "ROOT::VecOps::RVec<float> v; for (auto x : isHadEH) v.push_back(x ? 1.0f : 0.0f); return v;");
-
-
-// Raw fraktioiden DataFrame (ei leikkausta)
-auto df_frac_raw = df_iso
-    .Define("isHadH_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadH) v.push_back(x ? 1.0f : 0.0f); return v;")
-    .Define("isHadE_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadE) v.push_back(x ? 1.0f : 0.0f); return v;")
-    .Define("isHadMIP_float", "ROOT::VecOps::RVec<float> v; for (auto x : isHadMIP) v.push_back(x ? 1.0f : 0.0f); return v;")
-    .Define("isHadEH_float",  "ROOT::VecOps::RVec<float> v; for (auto x : isHadEH) v.push_back(x ? 1.0f : 0.0f); return v;");
-
-// Korjatut fraktiot: käytetään HCAL-cuttiin suodatettua dataa!
-// auto df_frac_corr = df_cut
-//     .Define("isHadH_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadH) v.push_back(x ? 1.0f : 0.0f); return v;")
-//     .Define("isHadE_float",   "ROOT::VecOps::RVec<float> v; for (auto x : isHadE) v.push_back(x ? 1.0f : 0.0f); return v;")
-//     .Define("isHadMIP_float", "ROOT::VecOps::RVec<float> v; for (auto x : isHadMIP) v.push_back(x ? 1.0f : 0.0f); return v;")
-//     .Define("isHadEH_float",  "ROOT::VecOps::RVec<float> v; for (auto x : isHadEH) v.push_back(x ? 1.0f : 0.0f); return v;");
-
-
-// // --- LISÄTÄÄN FRAKTIOTYYPIN PROFIILIKUVAJAT: kuinka suuri osa hiukkasista kuuluu johonkin tyyppiin tietyssä p-alueessa ---
-// profiles.push_back(df_frac.Profile1D({
-//     "h_frac_H", "Fraction: HCAL only; p (GeV); Fraction", nTrkPBins, trkPBins
-// }, "pIso", "isHadH_float"));
-// profiles.push_back(df_frac.Profile1D({
-//     "h_frac_E", "Fraction: ECAL only; p (GeV); Fraction", nTrkPBins, trkPBins
-// }, "pIso", "isHadE_float"));
-// profiles.push_back(df_frac.Profile1D({
-//     "h_frac_MIP", "Fraction: MIP; p (GeV); Fraction", nTrkPBins, trkPBins
-// }, "pIso", "isHadMIP_float"));
-// profiles.push_back(df_frac.Profile1D({
-//     "h_frac_EH", "Fraction: ECAL+HCAL; p (GeV); Fraction", nTrkPBins, trkPBins
-// }, "pIso", "isHadEH_float"));
-
-// // --- LISÄTÄÄN FRAKTIOTYYPIN PROFIILIKUVAJAT myös raw E/p -datalla ---
-// profiles.push_back(df_frac.Profile1D({
-//     "h_raw_frac_H", "Raw Fraction: HCAL only; p (GeV); Fraction", nTrkPBins, trkPBins
-// }, "pIso", "isHadH_float"));
-// profiles.push_back(df_frac.Profile1D({
-//     "h_raw_frac_E", "Raw Fraction: ECAL only; p (GeV); Fraction", nTrkPBins, trkPBins
-// }, "pIso", "isHadE_float"));
-// profiles.push_back(df_frac.Profile1D({
-//     "h_raw_frac_MIP", "Raw Fraction: MIP; p (GeV); Fraction", nTrkPBins, trkPBins
-// }, "pIso", "isHadMIP_float"));
-// profiles.push_back(df_frac.Profile1D({
-//     "h_raw_frac_EH", "Raw Fraction: ECAL+HCAL; p (GeV); Fraction", nTrkPBins, trkPBins
-// }, "pIso", "isHadEH_float"));
+// RAW + HCAL-cut versiot: ketjuta df_iso2:sta (mask_*_cut on määritelty siellä!)
+auto df_iso_raw_cut = df_iso2
+  .Define("ep_raw_H_cut",   "ep_raw_all[mask_H_cut]")
+  .Define("ep_raw_E_cut",   "ep_raw_all[mask_E_cut]")
+  .Define("ep_raw_MIP_cut", "ep_raw_all[mask_MIP_cut]")
+  .Define("ep_raw_EH_cut",  "ep_raw_all[mask_EH_cut]");
 
 
-// // Korjatut fraktiot (leikatusta datasta!)
-// profiles.push_back(df_frac_corr.Profile1D({"h_frac_H",   "Fraction: HCAL only; p (GeV); Fraction", nTrkPBins, trkPBins}, "pIso", "isHadH_float"));
-// profiles.push_back(df_frac_corr.Profile1D({"h_frac_E",   "Fraction: ECAL only; p (GeV); Fraction", nTrkPBins, trkPBins}, "pIso", "isHadE_float"));
-// profiles.push_back(df_frac_corr.Profile1D({"h_frac_MIP", "Fraction: MIP; p (GeV); Fraction",       nTrkPBins, trkPBins}, "pIso", "isHadMIP_float"));
-// profiles.push_back(df_frac_corr.Profile1D({"h_frac_EH",  "Fraction: ECAL+HCAL; p (GeV); Fraction", nTrkPBins, trkPBins}, "pIso", "isHadEH_float"));
+// --- keräysvektorit ---
+std::vector<ROOT::RDF::RResultPtr<TH1D>>     h1_histos;
+std::vector<ROOT::RDF::RResultPtr<TH2D>>     h2_histos;
+std::vector<ROOT::RDF::RResultPtr<TProfile>> profiles;
+std::vector<ROOT::RDF::RResultPtr<TH3D>>     h3_histos;
 
-profiles.push_back(df_frac.Profile1D({"h_frac_H",   "Fraction: HCAL only; p (GeV); Fraction", nTrkPBins, trkPBins}, "pIso", "isHadH_float"));
-profiles.push_back(df_frac.Profile1D({"h_frac_E",   "Fraction: ECAL only; p (GeV); Fraction", nTrkPBins, trkPBins}, "pIso", "isHadE_float"));
-profiles.push_back(df_frac.Profile1D({"h_frac_MIP", "Fraction: MIP; p (GeV); Fraction",       nTrkPBins, trkPBins}, "pIso", "isHadMIP_float"));
-profiles.push_back(df_frac.Profile1D({"h_frac_EH",  "Fraction: ECAL+HCAL; p (GeV); Fraction", nTrkPBins, trkPBins}, "pIso", "isHadEH_float"));
+// --- 1D: perusjakaumat, jotta plot_histograms.cc:n "histNames" löytyy ---
+h1_histos.push_back(df_iso.Histo1D({"h_pt_iso",       "Isolated track p_{T};p_{T} [GeV];Events",  60, 0.0, 120.0}, "ptIso"));
+h1_histos.push_back(df_iso.Histo1D({"h_eta_iso",      "Isolated track #eta;#eta;Events",          60, -3.0, 3.0},  "etaIso"));
+h1_histos.push_back(df_iso.Histo1D({"h_ep_iso",       "Default E/p;E/p;Events",                    40, 0.05, 2.5},  "ep_def_all"));
+h1_histos.push_back(df_iso.Histo1D({"h_raw_ep_iso",   "Raw E/p;E/p;Events",                        40, 0.05, 2.5},  "ep_raw_all"));
 
-// Raw fraktiot (ei leikkausta)
-profiles.push_back(df_frac_raw.Profile1D({"h_raw_frac_H",   "Raw Fraction: HCAL only; p (GeV); Fraction", nTrkPBins, trkPBins}, "pIso", "isHadH_float"));
-profiles.push_back(df_frac_raw.Profile1D({"h_raw_frac_E",   "Raw Fraction: ECAL only; p (GeV); Fraction", nTrkPBins, trkPBins}, "pIso", "isHadE_float"));
-profiles.push_back(df_frac_raw.Profile1D({"h_raw_frac_MIP", "Raw Fraction: MIP; p (GeV); Fraction",       nTrkPBins, trkPBins}, "pIso", "isHadMIP_float"));
-profiles.push_back(df_frac_raw.Profile1D({"h_raw_frac_EH",  "Raw Fraction: ECAL+HCAL; p (GeV); Fraction", nTrkPBins, trkPBins}, "pIso", "isHadEH_float"));
+// --- 1D: E/p per hadronityyppi (sekä default että raw) ---
+df_iso = df_iso
+  .Define("defEpIso_H",   "ROOT::VecOps::Where(isHadH,   ep_def_all, -1.0)")
+  .Define("defEpIso_E",   "ROOT::VecOps::Where(isHadE,   ep_def_all, -1.0)")
+  .Define("defEpIso_MIP", "ROOT::VecOps::Where(isHadMIP, ep_def_all, -1.0)")
+  .Define("defEpIso_EH",  "ROOT::VecOps::Where(isHadEH,  ep_def_all, -1.0)");
+
+h1_histos.push_back(df_iso.Histo1D({"h_ep_isHadH",   "Default E/p: HCAL only;E/p;Events", 40, 0.05, 2.5}, "defEpIso_H"));
+h1_histos.push_back(df_iso.Histo1D({"h_ep_isHadE",   "Default E/p: ECAL only;E/p;Events", 40, 0.05, 2.5}, "defEpIso_E"));
+h1_histos.push_back(df_iso.Histo1D({"h_ep_isHadMIP", "Default E/p: MIP;E/p;Events",       40, 0.05, 2.5}, "defEpIso_MIP"));
+h1_histos.push_back(df_iso.Histo1D({"h_ep_isHadEH",  "Default E/p: ECAL+HCAL;E/p;Events", 40, 0.05, 2.5}, "defEpIso_EH"));
+
+h1_histos.push_back(df_iso.Histo1D({"h_raw_ep_isHadH",   "Raw E/p: HCAL only;E/p;Events", 40, 0.05, 2.5}, "rawEpIso_H"));
+h1_histos.push_back(df_iso.Histo1D({"h_raw_ep_isHadE",   "Raw E/p: ECAL only;E/p;Events", 40, 0.05, 2.5}, "rawEpIso_E"));
+h1_histos.push_back(df_iso.Histo1D({"h_raw_ep_isHadMIP", "Raw E/p: MIP;E/p;Events",       40, 0.05, 2.5}, "rawEpIso_MIP"));
+h1_histos.push_back(df_iso.Histo1D({"h_raw_ep_isHadEH",  "Raw E/p: ECAL+HCAL;E/p;Events", 40, 0.05, 2.5}, "rawEpIso_EH"));
+
+// --- Fraktioprofiilit: no cut ---
+profiles.push_back(df_iso.Profile1D({"h_frac_H_all",   "Fraction (no cut): HCAL only;p (GeV);fraction",    nTrkPBins, trkPBins}, "pIso", "isHadH_float"));
+profiles.push_back(df_iso.Profile1D({"h_frac_E_all",   "Fraction (no cut): ECAL only;p (GeV);fraction",    nTrkPBins, trkPBins}, "pIso", "isHadE_float"));
+profiles.push_back(df_iso.Profile1D({"h_frac_MIP_all", "Fraction (no cut): MIP;p (GeV);fraction",          nTrkPBins, trkPBins}, "pIso", "isHadMIP_float"));
+profiles.push_back(df_iso.Profile1D({"h_frac_EH_all",  "Fraction (no cut): ECAL+HCAL;p (GeV);fraction",    nTrkPBins, trkPBins}, "pIso", "isHadEH_float"));
+
+// --- Fraktioprofiilit: HCAL E/E_raw > 0.9 cut ---
+profiles.push_back(df_iso.Profile1D({"h_frac_H_cut",   "Fraction (HCAL E/E_{raw}>0.9): HCAL only;p (GeV);fraction",    nTrkPBins, trkPBins}, "pIso_cut", "isHadH_float_cut"));
+profiles.push_back(df_iso.Profile1D({"h_frac_E_cut",   "Fraction (HCAL E/E_{raw}>0.9): ECAL only;p (GeV);fraction",    nTrkPBins, trkPBins}, "pIso_cut", "isHadE_float_cut"));
+profiles.push_back(df_iso.Profile1D({"h_frac_MIP_cut", "Fraction (HCAL E/E_{raw}>0.9): MIP;p (GeV);fraction",          nTrkPBins, trkPBins}, "pIso_cut", "isHadMIP_float_cut"));
+profiles.push_back(df_iso.Profile1D({"h_frac_EH_cut",  "Fraction (HCAL E/E_{raw}>0.9): ECAL+HCAL;p (GeV);fraction",    nTrkPBins, trkPBins}, "pIso_cut", "isHadEH_float_cut"));
+
+// --- 2D & profiilit: S1–S4 (nimet yhtenevät myöhempien plottien kanssa) ---
+// S1: Raw/p, HCAL cut
+h2_histos.push_back(df_iso.Histo2D({"h2_ep_vs_p_S1_raw_cut", "S1: Raw E/p vs p (HCAL E/E_{raw}>0.9);p (GeV);E/p",
+                                    nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "ep_raw_cut"));
+profiles .push_back(df_iso.Profile1D({"prof_ep_vs_p_S1_raw_cut", "S1: <Raw E/p> vs p (HCAL E/E_{raw}>0.9);p (GeV);E/p",
+                                      nTrkPBins, trkPBins}, "pIso", "ep_raw_cut"));
+h3_histos.push_back(df_iso.Histo3D({"h3_S1_raw_cut_ep_vs_hcal_p",
+                                    "S1: Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (cut);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+                                    50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_raw_cut", "hcalCorrFactor", "pIso"));
+
+// S2: Default/p, HCAL cut
+h2_histos.push_back(df_iso.Histo2D({"h2_ep_vs_p_S2_def_cut", "S2: Default E/p vs p (HCAL E/E_{raw}>0.9);p (GeV);E/p",
+                                    nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "ep_def_cut"));
+profiles .push_back(df_iso.Profile1D({"prof_ep_vs_p_S2_def_cut", "S2: <Default E/p> vs p (HCAL E/E_{raw}>0.9);p (GeV);E/p",
+                                      nTrkPBins, trkPBins}, "pIso", "ep_def_cut"));
+h3_histos.push_back(df_iso.Histo3D({"h3_S2_def_cut_ep_vs_hcal_p",
+                                    "S2: Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (cut);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+                                    50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_def_cut", "hcalCorrFactor", "pIso"));
+
+// S3: Raw/p, no cut
+h2_histos.push_back(df_iso.Histo2D({"h2_ep_vs_p_S3_raw_all", "S3: Raw E/p vs p (no cut);p (GeV);E/p",
+                                    nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "ep_raw_all"));
+profiles .push_back(df_iso.Profile1D({"prof_ep_vs_p_S3_raw_all", "S3: <Raw E/p> vs p (no cut);p (GeV);E/p",
+                                      nTrkPBins, trkPBins}, "pIso", "ep_raw_all"));
+h3_histos.push_back(df_iso.Histo3D({"h3_S3_raw_ep_vs_hcal_p",
+                                    "S3: Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p;E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+                                    50, 0.0, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_raw_all", "hcalCorrFactor", "pIso"));
+
+// S4: Default/p, no cut
+h2_histos.push_back(df_iso.Histo2D({"h2_ep_vs_p_S4_def_all", "S4: Default E/p vs p (no cut);p (GeV);E/p",
+                                    nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "ep_def_all"));
+profiles .push_back(df_iso.Profile1D({"prof_ep_vs_p_S4_def_all", "S4: <Default E/p> vs p (no cut);p (GeV);E/p",
+                                      nTrkPBins, trkPBins}, "pIso", "ep_def_all"));
+h3_histos.push_back(df_iso.Histo3D({"h3_S4_def_ep_vs_hcal_p",
+                                    "S4: Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p;E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+                                    50, 0.0, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_def_all", "hcalCorrFactor", "pIso"));
+
+// --- Per-tyyppiset 3D:t: Default E/p + HCAL cut (plot_histograms.cc käyttää näitä) ---
+h3_histos.push_back(df_iso2.Histo3D({"h3_resp_corr_p_isHadH",
+  "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, HCAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+  50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_def_H_cut", "hcal_H_cut", "p_H_cut"));
+h3_histos.push_back(df_iso2.Histo3D({"h3_resp_corr_p_isHadE",
+  "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, ECAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+  50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_def_E_cut", "hcal_E_cut", "p_E_cut"));
+h3_histos.push_back(df_iso2.Histo3D({"h3_resp_corr_p_isHadMIP",
+  "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, MIP);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+  50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_def_MIP_cut", "hcal_MIP_cut", "p_MIP_cut"));
+h3_histos.push_back(df_iso2.Histo3D({"h3_resp_corr_p_isHadEH",
+  "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, ECAL+HCAL);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+  50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_def_EH_cut", "hcal_EH_cut", "p_EH_cut"));
+
+// --- Per-tyyppiset 3D:t: Default E/p, no cut (Y 0.0–2.5) ---
+h3_histos.push_back(df_iso_nocut.Histo3D({"h3_resp_def_p_isHadH_all",
+  "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, HCAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+  50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_def_H_all", "hcal_H_all", "p_H_all"));
+h3_histos.push_back(df_iso_nocut.Histo3D({"h3_resp_def_p_isHadE_all",
+  "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, ECAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+  50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_def_E_all", "hcal_E_all", "p_E_all"));
+h3_histos.push_back(df_iso_nocut.Histo3D({"h3_resp_def_p_isHadMIP_all",
+  "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, MIP);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+  50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_def_MIP_all", "hcal_MIP_all", "p_MIP_all"));
+h3_histos.push_back(df_iso_nocut.Histo3D({"h3_resp_def_p_isHadEH_all",
+  "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, ECAL+HCAL);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+  50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_def_EH_all", "hcal_EH_all", "p_EH_all"));
+
+// --- Per-tyyppiset 3D:t: Raw E/p, no cut (Y 0.0–2.5) ---
+h3_histos.push_back(df_iso_raw_all.Histo3D({"h3_resp_raw_p_isHadH_all",
+  "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, HCAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+  50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_raw_H_all", "hcal_H_all", "p_H_all"));
+h3_histos.push_back(df_iso_raw_all.Histo3D({"h3_resp_raw_p_isHadE_all",
+  "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, ECAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+  50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_raw_E_all", "hcal_E_all", "p_E_all"));
+h3_histos.push_back(df_iso_raw_all.Histo3D({"h3_resp_raw_p_isHadMIP_all",
+  "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, MIP);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+  50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_raw_MIP_all", "hcal_MIP_all", "p_MIP_all"));
+h3_histos.push_back(df_iso_raw_all.Histo3D({"h3_resp_raw_p_isHadEH_all",
+  "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, ECAL+HCAL);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+  50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_raw_EH_all", "hcal_EH_all", "p_EH_all"));
+
+// --- Per-tyyppiset 3D:t: Raw E/p + HCAL cut (pyysit nämä nimillä "h3_resp_raw_p_isHad*_cut") ---
+h3_histos.push_back(df_iso_raw_cut.Histo3D({"h3_resp_raw_p_isHadH_cut",
+  "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, HCAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+  50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_raw_H_cut", "hcal_H_cut", "p_H_cut"));
+h3_histos.push_back(df_iso_raw_cut.Histo3D({"h3_resp_raw_p_isHadE_cut",
+  "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, ECAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+  50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_raw_E_cut", "hcal_E_cut", "p_E_cut"));
+h3_histos.push_back(df_iso_raw_cut.Histo3D({"h3_resp_raw_p_isHadMIP_cut",
+  "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, MIP);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+  50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_raw_MIP_cut", "hcal_MIP_cut", "p_MIP_cut"));
+h3_histos.push_back(df_iso_raw_cut.Histo3D({"h3_resp_raw_p_isHadEH_cut",
+  "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, ECAL+HCAL);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+  50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_raw_EH_cut", "hcal_EH_cut", "p_EH_cut"));
 
 
-// --- EVALUOIDAAN kaikki histogrammit kerralla (lazy evaluation aktivoituu vasta nyt) ---
-std::vector<ROOT::RDF::RResultHandle> handles;
-for (auto& h : h1_histos) handles.push_back(h);
-for (auto& h : h2_histos) handles.push_back(h);
-for (auto& h : h3_histos) handles.push_back(h);
-for (auto& p : profiles)  handles.push_back(p);
-ROOT::RDF::RunGraphs(handles); // nyt vasta kaikki eventit käydään läpi
+// --- AVAA ROOT-tiedosto ---
+std::string finalPath;
+if (outpath && std::string(outpath).size()>0) {
+  finalPath = outpath;
+  // tee hakemisto, jos ei olemassa
+  std::string dir = gSystem->DirName(finalPath.c_str());
+  if (dir != "" && dir != "." && dir != "/") {
+    gSystem->mkdir(dir.c_str(), true);
+  }
+} else {
+  std::string outdir = "histograms";
+  gSystem->mkdir(outdir.c_str(), true);
+  finalPath = outdir + "/" + std::string(tag) + ".root";
+}
 
-// --- KIRJOITETAAN kaikki histogrammit tiedostoon ---
+TFile out(finalPath.c_str(), "RECREATE");
+
+// --- KIRJOITA TIEDOSTOON (kirjoitus laukaisee myös evaluoinnin) ---
 for (auto& h : h1_histos) h->Write();
 for (auto& h : h2_histos) h->Write();
 for (auto& h : h3_histos) h->Write();
@@ -291,5 +427,6 @@ out.Close();
 
 // tulostetaan kokonaisajankesto
 auto end = std::chrono::high_resolution_clock::now();
-std::cout << "Elapsed time: " << std::chrono::duration<double>(end - start).count() << " s\n";
+std::cout << "Wrote " << finalPath << " | Elapsed time: "
+          << std::chrono::duration<double>(end - start).count() << " s\n";
 }
