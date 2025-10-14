@@ -1,5 +1,5 @@
 
-// =================== ROOT-kirjastot ===================
+// ---------------- ROOT-kirjastot -------------
 // Perus ROOT-headereita kanvaksille, tiedostoille, tyyleille, histoille, graafeille ja fit-funktioille
 #include "TROOT.h"
 #include "TFile.h"
@@ -8,6 +8,7 @@
 #include "TColor.h"
 #include "TPad.h"
 #include "TLegend.h"
+#include "TPaveStats.h"
 #include "TSystem.h"
 #include "TString.h"
 
@@ -50,13 +51,13 @@ constexpr const char* kFileData = "histograms/ZeroBias2024_All.root";
 constexpr const char* kOutBase  = "plots2";
 
 
-// =================== Pääfunktio ===================
+//  ------------- Pääfunktio -------------
 // - Jos argumentti on erikoislippu (esim. --compile-both), ajetaan koosteet/heatmapit
 // - Jos argumentti on "dummy", ajetaan muutama nopea vertailuplotti
 // - Muuten avataan annettu ROOT-tiedosto ja piirretään kaikki määritellyt kuvat
 void plot_histograms(const std::string& filename) {
 
-  // ---- LIPUT: erikoisajot ilman yksittäisen ROOT-tiedoston avaamista ----
+  // -erikoisajot ilman yksittäisen ROOT-tiedoston avaamista
   // Nämä polut tuottavat PDF-koostesivuja ja/tai logaritmisella x-akselilla
   // varustettuja 2D-kartta-PDF:iä suoraan DATA/MC -tiedostoista
   if (filename == "--compile-both" || filename == "--compile-data" ||
@@ -106,15 +107,59 @@ void plot_histograms(const std::string& filename) {
     return;
   }
 
-  // Valitse outdir automaattisesti syötetiedoston nimen perusteella (Data vs MC)
-  std::string tag = "Unknown";
-  if (filename.find("ZeroBias") != std::string::npos)             tag = "Data_ZeroBias2024";
-  else if (filename.find("SingleNeutrino") != std::string::npos)  tag = "MC_SingleNeutrino2024";
-  std::string outdir = "plots2/" + tag + "/";
-  gSystem->mkdir(outdir.c_str(), true);
+  // // Valitse outdir automaattisesti syötetiedoston nimen perusteella (Data vs MC)
+  // std::string tag = "Unknown";
 
-  // Asetetaan paletti 2D-ploteille (väriskaala)
-  gStyle->SetPalette(kBird);
+
+  // // if (filename.find("ZeroBias") != std::string::npos)             tag = "Data_ZeroBias2024";
+  // // else if (filename.find("SingleNeutrino") != std::string::npos)  tag = "MC_SingleNeutrino2024";
+  // if (filename.find("ZeroBias") != std::string::npos) {
+  //     tag = "Data_" + filename;
+  //     // poista .root lopusta:
+  //     size_t pos = tag.find(".root");
+  //     if (pos != std::string::npos) tag = tag.substr(0, pos);
+  // }
+
+
+  // std::string outdir = "plots2/" + tag + "/";
+  // gSystem->mkdir(outdir.c_str(), true);
+
+  // // Asetetaan paletti 2D-ploteille (väriskaala)
+  // gStyle->SetPalette(kBird);
+
+
+    // Valitse outdir automaattisesti syötetiedoston nimen perusteella (Data vs MC)
+    std::string tag = "Unknown";
+
+    // Poimi tiedostonimi ilman polkua
+    std::string base = gSystem->BaseName(filename.c_str());
+
+    // Poista .root-pääte
+    size_t pos = base.find(".root");
+    if (pos != std::string::npos) base = base.substr(0, pos);
+
+    // Aseta tag datasetin tyypin mukaan (vain informatiivisesti, ei kansiopolussa)
+    if (filename.find("ZeroBias") != std::string::npos) {
+        tag = "Data_" + base;
+    } 
+    else if (filename.find("SingleNeutrino") != std::string::npos) {
+        tag = "MC_" + base;
+    } 
+    else {
+        tag = "Unknown_" + base;
+    }
+
+    // Peruskansio vuosien mukaan
+    std::string baseplots = "plots2";
+    if (filename.find("2025") != std::string::npos) baseplots = "plots2025";
+
+    // Lopullinen ulostulokansio: käytetään datasetin nimeä (base) kansiona
+    std::string outdir = baseplots + "/" + base + "/";
+    gSystem->mkdir(outdir.c_str(), true);
+
+    // Debug-tulostus
+    std::cout << "[plot_histograms] Writing plots to: " << outdir << std::endl;
+
 
 
     // Lista nimistä, jotka vastaavat uutta run_histograms.cc:tä
@@ -175,7 +220,7 @@ void plot_histograms(const std::string& filename) {
         delete c;
     }
 
-    // -------- 3D → 2D -projektiot (uudet nimet & oikea akselijärjestys) --------
+    // -------- 3D -> 2D -projektiot (uudet nimet & oikea akselijärjestys) --------
     // h3_*:  X = E/p,  Y = E_HCAL / E_HCAL^raw,  Z = p
     // Tehdään XY-projektio valituissa p-alueissa; HUOM: Y-akseli on korjausfaktori
     std::vector<std::pair<std::string,std::string>> h3_list = {
@@ -228,72 +273,12 @@ void plot_histograms(const std::string& filename) {
     }
 
 
-// // ==========================================
-// // E/p-jakaumat tietyillä p-alueilla (cut), Gauss-fitti
-// // ==========================================
-
-// // Valitse p-alueet
-// std::vector<std::pair<double, double>> pBins = {{5.5, 6.0}, {20.0, 22.0}};
-
-// // Nouda 2D-histot uusilla nimillä (CUT-versiot)
-// TH2D* h2_def_cut = dynamic_cast<TH2D*>(file->Get("h2_ep_vs_p_S2_def_cut")); // Default E/p, HCAL cut
-// TH2D* h2_raw_cut = dynamic_cast<TH2D*>(file->Get("h2_ep_vs_p_S1_raw_cut")); // Raw E/p, HCAL cut
-// TH2D* h2_def_all = dynamic_cast<TH2D*>(file->Get("h2_ep_vs_p_S4_def_all"));
-// TH2D* h2_raw_all = dynamic_cast<TH2D*>(file->Get("h2_ep_vs_p_S3_raw_all"));
-
-// // Apufunktio: projektoi ja fittaa yhdestä 2D:stä
-// auto do_proj_fit = [&](TH2D* h2, const char* tag, const char* ytitle) {
-//     if (!h2) {
-//         std::cerr << "[WARN] histogram not found for " << tag << std::endl;
-//         return;
-//     }
-//     for (const auto& bin : pBins) {
-//         double pmin = bin.first, pmax = bin.second;
-
-//         // X-akselin (p) bin-rajat
-//         int bin_min = h2->GetXaxis()->FindBin(pmin + 1e-3);
-//         int bin_max = h2->GetXaxis()->FindBin(pmax - 1e-3);
-
-//         // Nimet ulostuloille
-//         std::string hname = Form("proj_%s_%d_%d", tag, int(pmin*10), int(pmax*10));
-//         std::string cname = "canvas_" + hname;
-
-//         // Projektio Y-akselille (E/p)
-//         TH1D* proj = h2->ProjectionY(hname.c_str(), bin_min, bin_max);
-//         if (!proj || proj->Integral() <= 0) continue;
-//         proj->SetDirectory(nullptr);     // irrota filestä varmuuden vuoksi
-//         proj->Scale(1.0 / proj->Integral());
-
-//         // Gauss-fitti järkevällä alueella
-//         TF1* fit = new TF1((hname + "_fit").c_str(), "gaus", 0.0, 2.5);
-//         proj->Fit(fit, "RQ", "", 0.7, 1.2);
-
-//         // Piirto
-//         TCanvas* c = new TCanvas(cname.c_str(), cname.c_str(), 800, 600);
-//         proj->SetTitle(Form("%s in %.1f - %.1f GeV", ytitle, pmin, pmax));
-//         proj->GetXaxis()->SetTitle(ytitle);
-//         proj->GetYaxis()->SetTitle("Fraction of particles");
-//         proj->SetFillColorAlpha(kBlue, 0.35);
-//         proj->Draw("hist");
-//         fit->SetLineColor(kRed);
-//         fit->Draw("same");
-//         c->SaveAs((outdir + hname + ".png").c_str());
-//         c->Write();
-//     }
-// };
-
-// // Aja sekä raw cut että default cut (poista toinen, jos haluat vain toisen)
-// do_proj_fit(h2_raw_cut, "raw_ep_cut", "Raw E/p");
-// do_proj_fit(h2_def_cut, "def_ep_cut", "E/p");
-// do_proj_fit(h2_raw_all, "raw_ep_all", "Raw E/p");
-// do_proj_fit(h2_def_all, "def_ep_all", "E/p");
 
 
 
-// ==========================================
+// ----------------------------------------------------
 // E/p-jakaumat valituilla p-alueilla (CUT), 3-Gauss fitti + komponentit
-// ==========================================
-
+// ---------------------------------------------------
 std::vector<std::pair<double, double>> pBins = {{5.5, 6.0}, {20.0, 22.0}};
 
 // Uudet 2D-histot (CUT-versiot):
@@ -355,11 +340,11 @@ auto fit3G = [&](TH2D* h2, const char* tag, const char* ytitle) {
     }
 };
 
-// Aja S1 ja S2 (poista toinen, jos haluat käsitellä vain toista casea)
+// Ajetaan S1 ja S2 (poistetaan toinen, jos halutaan käsitellä vain toista casea)
 fit3G(h2_raw_cut, "raw_ep_cut", "Raw E/p");
 fit3G(h2_def_cut, "def_ep_cut", "E/p");
 
-// (Halutessasi myös versiot ilman leikkausta: S3/S4)
+// (myös versiot ilman leikkausta: S3/S4)
 // TH2D* h2_raw_all = dynamic_cast<TH2D*>(file->Get("h2_ep_vs_p_S3_raw_all"));
 // TH2D* h2_def_all = dynamic_cast<TH2D*>(file->Get("h2_ep_vs_p_S4_def_all"));
 // fit3G(h2_raw_all, "raw_ep_all", "Raw E/p");
@@ -367,9 +352,9 @@ fit3G(h2_def_cut, "def_ep_cut", "E/p");
 
 
 
-// ==========================================
+// --------------------------------------------------------------
 // Fitted mean (ilman HCAL-korjausleikkausta), TGraph-muodossa
-// ==========================================
+// --------------------------------------------------------------
 
 TGraph* g_fit = new TGraph();
 g_fit->SetName("g_fit_mean_nocut");
@@ -420,9 +405,9 @@ if (h2_def_all) {
 // (Vaihtoehtoisesti nopeampi: käytä profiilia prof_ep_vs_p_S4_def_all 
 // ja ota sen bin-meanit suoraan ilman Gauss-fittiä.)
 
-// ===============================
+// --------------------------------------
 // Fitted-meanit HCAL-korjauksen jälkeen
-// ===============================
+// --------------------------------------
 
 // p-alueet ja tagit kuvien nimeämiseen
 std::vector<std::pair<double, double>> hcalcut_pBins = {{5.5, 6.5}, {10.0, 12.0}, {20.0, 24.0}};
@@ -493,9 +478,9 @@ if (h3) {
 }
 
 
-// ===============================
+// -----------------------------------
 // E/p per hadronityyppi kaikissa p-bineissä — KAIKKI CASET ERIKSEEN
-// ===============================
+// -----------------------------------
 
 // p-binit
 const double trkPBins_full[] = {
@@ -634,9 +619,9 @@ for (const auto& cs : cases) {
 
 
 
-// ===============================
+// ----------------------------
 // Yhdistetty E/p per hadronityyppi (kaikki p), kaikki caset
-// ===============================
+// ----------------------------
 
 gStyle->SetOptFit(111);
 
@@ -716,9 +701,9 @@ for (const auto& cs : cases) {
   }
 }
 
-// ===============================
+// -------------------------------
 // STACKED E/p DISTRIBUTIONS FOR EACH p BIN
-// ===============================
+// -------------------------------
 
 // p-binit (tämä täsmää run_histograms.cc:ssä käytettyihin)
 const double trkPBins[] = {
@@ -844,9 +829,9 @@ if (h3_H && h3_E && h3_MIP && h3_EH) {
 }
 
 
-// ===============================
+// ----------------------------
 // HADRON FRACTIONS vs p (no cut ja/tai HCAL cut)
-// ===============================
+// ----------------------------
 
 auto drawFractions = [&](const char* suffix, const char* tagInName){
   // yritä hakea TProfilet tällä suffiksilla
@@ -900,9 +885,9 @@ if (!drew_cut && !drew_all) {
 }
 
 
-// ===============================
+// -------------------------------
 // HADRONITYYPPIEN FRAKTIOT: PINOTTU HISTOGRAMMI
-// ===============================
+// -------------------------------
 std::cout << "Drawing stacked hadron fraction plot..." << std::endl;
 
 // yritä ensin HCAL-cut profiileja, muuten no-cut
@@ -1006,10 +991,10 @@ if (!suffix) {
 file->Close();
 }
 
-// ===============================================
+// --------------------------------
 // E/p MC vs Data: hae 1D valmiina tai projisoi 2D:stä,
-// normalisoi, fittaa Crystal Ball, tallenna kuva.
-// ===============================================
+// normalisoi, fittaa Crystal Ball, tallenna kuva
+// --------------------------------
 void plot_ep_overlay() {
   // ---- Valitse vertailu (vaihda näitä tarvittaessa) ----
   constexpr bool useDefaultEp = true;   // true = Default (S2/S4), false = Raw (S1/S3)
@@ -1567,40 +1552,412 @@ void make_h2_maps_logx_pdf(const char* inpath, const char* outdirTag) {
   }
 }
 
+
+// --- 2024 vs 2025 ZeroBias -vuosivertailu ---
+void compare_zerobias_years(const char* file2024, const char* file2025) {
+  // Avaa ROOT-tiedostot
+  std::unique_ptr<TFile> f24(TFile::Open(file2024,"READ"));
+  std::unique_ptr<TFile> f25(TFile::Open(file2025,"READ"));
+  if (!f24 || f24->IsZombie() || !f25 || f25->IsZombie()) {
+    std::cerr << "[compare_zerobias_years] virhe: tiedostojen avaus epäonnistui\n";
+    return;
+  }
+
+  // Profiilien nimet ja selkeät otsikot
+  struct PlotCfg {
+    std::string key;
+    std::string title;
+  };
+  std::vector<PlotCfg> configs = {
+    {"prof_ep_vs_p_S1_raw_cut", "S1: Raw E/p vs p (HCAL cut)"},
+    {"prof_ep_vs_p_S2_def_cut", "S2: Default corrected E/p vs p (HCAL cut)"},
+    {"prof_ep_vs_p_S4_def_all", "S4: Default corrected E/p vs p (no cut)"}
+  };
+
+  // Tee ulostulokansio
+  gSystem->mkdir("plots_compare", true);
+
+  // Loopataan profiilit
+  for (auto& cfg : configs) {
+    auto* h24 = dynamic_cast<TProfile*>(f24->Get(cfg.key.c_str()));
+    auto* h25 = dynamic_cast<TProfile*>(f25->Get(cfg.key.c_str()));
+
+    if (!h24 || !h25) {
+      std::cerr << "[compare_zerobias_years] histogrammia " << cfg.key << " ei löytynyt\n";
+      continue;
+    }
+
+    // Muotoilu
+    h24->SetLineColor(kBlue); h24->SetLineWidth(2);
+    h25->SetLineColor(kRed);  h25->SetLineWidth(2);
+
+    // Luo canvas selkeällä otsikolla
+    TCanvas c(("c_"+cfg.key).c_str(), cfg.title.c_str(), 900, 700);
+    c.SetLogx();
+
+    h24->SetTitle((cfg.title + ";p (GeV);E/p").c_str());
+    h24->Draw("E1");
+    h25->Draw("E1 SAME");
+
+    auto leg = new TLegend(0.6,0.7,0.88,0.88);
+    leg->AddEntry(h24,"ZeroBias 2024","l");
+    leg->AddEntry(h25,"ZeroBias 2025","l");
+    leg->Draw();
+
+    // Tallenna tiedosto
+    std::string outname = "plots_compare/compare_" + cfg.key + ".png";
+    c.SaveAs(outname.c_str());
+
+    std::cout << "[compare_zerobias_years] Saved " << outname << std::endl;
+  }
+}
+
+
+void compile_response_pages(const char* inpath,
+                            const char* outpdf,
+                            const std::vector<std::pair<double,double>>& pBins)
+{
+  gStyle->SetOptStat(0);
+
+
+// ----------------------------------------------------------------------
+// Piirretään E/p-jakaumat valituille p-alueille (HCAL only, yksittäinen datasetti)
+// ----------------------------------------------------------------------
+void plot_response_distributions(const char* filePath,
+                                 const char* tag,
+                                 const std::vector<std::pair<double,double>>& bins) {
+  std::unique_ptr<TFile> f(TFile::Open(filePath, "READ"));
+  if (!f || f->IsZombie()) {
+    std::cerr << "[plot_response_distributions] cannot open " << filePath << "\n";
+    return;
+  }
+
+  auto* h3 = dynamic_cast<TH3D*>(f->Get("h3_resp_def_p_isHadH_all"));
+  if (!h3) {
+    std::cerr << "[plot_response_distributions] histogram 'h3_resp_def_p_isHadH_all' not found\n";
+    return;
+  }
+
+  std::cout << "[INFO] Opened " << filePath << std::endl;
+  std::cout << "[INFO] Histogram range in p: " 
+            << h3->GetZaxis()->GetXmin() << " - " << h3->GetZaxis()->GetXmax() << " GeV" << std::endl;
+
+  std::string baseplots = "/eos/user/m/mmarjama/my_pion_analysis/plots2025";
+  gSystem->mkdir(baseplots.c_str(), true);
+
+  std::string datasetDir = baseplots + "/" + std::string(tag) + "/resp_dists";
+  gSystem->mkdir(datasetDir.c_str(), true);
+
+  int idx = 0;
+  for (auto& bin : bins) {
+    double pmin = bin.first;
+    double pmax = bin.second;
+
+    int z1 = h3->GetZaxis()->FindBin(pmin + 1e-3);
+    int z2 = h3->GetZaxis()->FindBin(pmax - 1e-3);
+    if (z2 <= z1) z2 = z1 + 1; // varmistetaan että projektion alue ei ole tyhjä
+
+    std::cout << "[DEBUG] Projecting p range " << pmin << "–" << pmax 
+              << " GeV  (z1=" << z1 << ", z2=" << z2 << ")" << std::endl;
+
+    auto* h1 = h3->ProjectionX(Form("proj_ep_%s_bin%d", tag, idx), 1, -1, z1, z2);
+    if (!h1 || h1->GetEntries() == 0) {
+      std::cout << "[WARN] No entries in bin " << pmin << "–" << pmax << " GeV" << std::endl;
+      ++idx;
+      continue;
+    }
+
+    h1->SetLineWidth(2);
+    h1->SetLineColor(kBlue + idx);
+    h1->SetTitle(Form("E/p distribution (HCAL only) — %.1f < p < %.1f GeV;E/p;Events", pmin, pmax));
+
+    TCanvas c(Form("c_resp_%s_bin%d", tag, idx), "", 800, 600);
+    h1->Draw("HIST E");
+
+    std::string outname = Form("%s/respDist_%s_%.0f_%.0f.png", datasetDir.c_str(), tag, pmin, pmax);
+    std::cout << "[INFO] Saving " << outname << std::endl;
+    c.SaveAs(outname.c_str());
+    ++idx;
+  }
+}
+
+// --- 2D heatmapit log-x:llä + profiilit + monisivuinen PDF ---
+void make_h2_maps_logx_pdf(const char* inpath, const char* outdirTag) {
+  gStyle->SetPalette(kBird);
+
+
+
+// ----------------------------------------------------------------------
+// Piirretään overlay: kahden datasetin E/p-jakaumat samoille p-alueille
+//  - sisältää nyt:
+//     • y-max = 0.6
+//     • mahdollisuuden HCAL correction cutiin
+//     • vain kaksi hadronityyppiä: HCALonly ja HCALplusECAL
+// ----------------------------------------------------------------------
+void plot_overlay_responses(const char* file1, const char* tag1,
+                            const char* file2, const char* tag2,
+                            const char* outdir,
+                            const std::vector<std::pair<double,double>>& bins,
+                            bool useHCALCut = false) {
+
+  gStyle->SetOptStat(0);  // poistaa entries / mean / RMS -laatikot
+
+  // Open both ROOT files
+  std::unique_ptr<TFile> f1(TFile::Open(file1, "READ"));
+  std::unique_ptr<TFile> f2(TFile::Open(file2, "READ"));
+  if (!f1 || f1->IsZombie() || !f2 || f2->IsZombie()) {
+    std::cerr << "[plot_overlay_responses] Cannot open one of the input files.\n";
+    return;
+  }
+
+  // Define the relevant histogram names for both types (HCALonly and HCALplusECAL)
+  std::vector<std::string> hadronCats   = {"isHadH", "isHadEH"};
+  std::vector<std::string> hadronLabels = {"HCALonly", "HCALplusECAL"};
+
+  // Optional HCAL correction cut
+  std::string cutTag   = (useHCALCut ? "_HCALcut" : "_noCut");
+  std::string outputDir = std::string(outdir) + cutTag;
+  gSystem->mkdir(outputDir.c_str(), true);
+
+  std::cout << "[INFO] Output directory: " << outputDir << std::endl;
+  if (useHCALCut)
+    std::cout << "[INFO] Applying HCAL correction cut (E_HCAL / E_HCAL_raw > 0.9)\n";
+  else
+    std::cout << "[INFO] No HCAL correction cut applied\n";
+
+  // -------------------------------------------------------------
+  // Loop over both hadron types
+  // -------------------------------------------------------------
+  for (size_t h = 0; h < hadronCats.size(); ++h) {
+
+    // Valitaan histogrammin nimi riippuen HCAL-cutin käytöstä
+    std::string hname1, hname2;
+    if (useHCALCut) {
+      // Käytetään HCAL-cutin mukaisia histogrammeja
+      hname1 = "h3_resp_corr_p_" + hadronCats[h];
+      hname2 = "h3_resp_corr_p_" + hadronCats[h];
+    } else {
+      // Käytetään ilman HCAL-cuttia tehtyjä histogrammeja
+      hname1 = "h3_resp_def_p_" + hadronCats[h] + "_all";
+      hname2 = "h3_resp_def_p_" + hadronCats[h] + "_all";
+    }
+
+    std::cout << "[DEBUG] Using histograms: " << hname1 << " and " << hname2 << std::endl;
+
+    // Ladataan histogrammit molemmista tiedostoista
+    auto* h3_1 = dynamic_cast<TH3D*>(f1->Get(hname1.c_str()));
+    auto* h3_2 = dynamic_cast<TH3D*>(f2->Get(hname2.c_str()));
+
+    if (!h3_1 || !h3_2) {
+      std::cerr << "[ERROR] Missing histograms for hadron type " << hadronLabels[h] << std::endl;
+      continue;
+    }
+
+    // -------------------------------------------------------------
+    // Loop over pT bins
+    // -------------------------------------------------------------
+    int idx = 0;
+    for (auto& bin : bins) {
+      double pmin = bin.first;
+      double pmax = bin.second;
+
+      int z1a = h3_1->GetZaxis()->FindBin(pmin + 1e-3);
+      int z2a = h3_1->GetZaxis()->FindBin(pmax - 1e-3);
+      int z1b = h3_2->GetZaxis()->FindBin(pmin + 1e-3);
+      int z2b = h3_2->GetZaxis()->FindBin(pmax - 1e-3);
+      if (z2a <= z1a) z2a = z1a + 1;
+      if (z2b <= z1b) z2b = z1b + 1;
+
+      std::cout << "[DEBUG] Bin " << idx << ": " << pmin << "–" << pmax
+                << " GeV, type=" << hadronLabels[h] << std::endl;
+
+      auto* h1 = h3_1->ProjectionX(Form("h1_%zu_%d", h, idx), 1, -1, z1a, z2a);
+      auto* h2 = h3_2->ProjectionX(Form("h2_%zu_%d", h, idx), 1, -1, z1b, z2b);
+
+      if (!h1 || !h2 || h1->GetEntries() == 0 || h2->GetEntries() == 0) {
+        std::cout << "[WARN] No entries for " << pmin << "-" << pmax << " GeV" << std::endl;
+        ++idx;
+        continue;
+      }
+
+      // Normalize
+      if (h1->Integral() > 0) h1->Scale(1.0 / h1->Integral());
+      if (h2->Integral() > 0) h2->Scale(1.0 / h2->Integral());
+
+      h1->SetLineColor(kBlue);
+      h2->SetLineColor(kRed);
+      h1->SetLineWidth(2);
+      h2->SetLineWidth(2);
+
+      // Draw and apply y-max limit
+      TCanvas c(Form("c_overlay_%zu_%d", h, idx), "", 800, 600);
+      h1->SetTitle(Form("E/p comparison (%s) %.1f < p < %.1f GeV;E/p;Normalized entries",
+                        hadronLabels[h].c_str(), pmin, pmax));
+      h1->SetMaximum(0.6);
+      h1->Draw("HIST");
+      h2->Draw("HIST SAME");
+
+      auto* leg = new TLegend(0.62, 0.74, 0.88, 0.88);
+      leg->AddEntry(h1, tag1, "l");
+      leg->AddEntry(h2, tag2, "l");
+      leg->Draw();
+
+      std::string outname = Form("%s/overlay_%s_%.0f_%.0f.png",
+                                 outputDir.c_str(), hadronLabels[h].c_str(), pmin, pmax);
+      std::cout << "[INFO] Saving " << outname << std::endl;
+      c.SaveAs(outname.c_str());
+
+      ++idx;
+    }
+  }
+  // -------------------------------------------------------------
+  // Ei categorization: yhdistetään kaikki hadron hadron tyypit yhteen
+  // -------------------------------------------------------------
+  {
+    std::cout << "[DEBUG] Combining all hadron categories (no categorization)" << std::endl;
+
+    // Määritellään neljä histogrammia (def ja corr-versiot)
+    std::vector<std::string> catNames = {"isHadH", "isHadEH", "isHadE", "isHadMIP"};
+
+    TH3D *h3_1_sum = nullptr;
+    TH3D *h3_2_sum = nullptr;
+
+    for (auto &cat : catNames) {
+      std::string hname1, hname2;
+      if (useHCALCut) {
+        hname1 = "h3_resp_corr_p_" + cat;
+        hname2 = "h3_resp_corr_p_" + cat;
+      } else {
+        hname1 = "h3_resp_def_p_" + cat + "_all";
+        hname2 = "h3_resp_def_p_" + cat + "_all";
+      }
+
+      auto *tmp1 = dynamic_cast<TH3D*>(f1->Get(hname1.c_str()));
+      auto *tmp2 = dynamic_cast<TH3D*>(f2->Get(hname2.c_str()));
+      if (!tmp1 || !tmp2) continue;
+
+      if (!h3_1_sum) h3_1_sum = (TH3D*)tmp1->Clone("h3_1_sum");
+      else h3_1_sum->Add(tmp1);
+
+      if (!h3_2_sum) h3_2_sum = (TH3D*)tmp2->Clone("h3_2_sum");
+      else h3_2_sum->Add(tmp2);
+    }
+
+    if (!h3_1_sum || !h3_2_sum) {
+      std::cerr << "[WARN] Could not combine histograms for no categorization." << std::endl;
+    } else {
+      int idx = 0;
+      for (auto &bin : bins) {
+        double pmin = bin.first;
+        double pmax = bin.second;
+
+        int z1a = h3_1_sum->GetZaxis()->FindBin(pmin + 1e-3);
+        int z2a = h3_1_sum->GetZaxis()->FindBin(pmax - 1e-3);
+        int z1b = h3_2_sum->GetZaxis()->FindBin(pmin + 1e-3);
+        int z2b = h3_2_sum->GetZaxis()->FindBin(pmax - 1e-3);
+        if (z2a <= z1a) z2a = z1a + 1;
+        if (z2b <= z1b) z2b = z1b + 1;
+
+        auto *h1 = h3_1_sum->ProjectionX(Form("h1_noCat_%d", idx), 1, -1, z1a, z2a);
+        auto *h2 = h3_2_sum->ProjectionX(Form("h2_noCat_%d", idx), 1, -1, z1b, z2b);
+
+        if (!h1 || !h2 || h1->GetEntries() == 0 || h2->GetEntries() == 0) continue;
+
+        if (h1->Integral() > 0) h1->Scale(1.0 / h1->Integral());
+        if (h2->Integral() > 0) h2->Scale(1.0 / h2->Integral());
+
+        h1->SetLineColor(kBlue);
+        h2->SetLineColor(kRed);
+        h1->SetLineWidth(2);
+        h2->SetLineWidth(2);
+
+        TCanvas c(Form("c_noCat_%d", idx), "", 800, 600);
+        h1->SetTitle(Form("E/p comparison (no categorization) %.1f < p < %.1f GeV;E/p;Normalized entries",
+                          pmin, pmax));
+        h1->SetMaximum(0.6);
+        h1->Draw("HIST");
+        h2->Draw("HIST SAME");
+
+        auto *leg = new TLegend(0.62, 0.74, 0.88, 0.88);
+        leg->AddEntry(h1, tag1, "l");
+        leg->AddEntry(h2, tag2, "l");
+        leg->Draw();
+
+        std::string outname = Form("%s/overlay_noCategory_%.0f_%.0f.png",
+                                  outputDir.c_str(), pmin, pmax);
+        c.SaveAs(outname.c_str());
+        ++idx;
+      }
+    }
+  }
+}
+
+
+
+
+// ----------------------------------------------------------------------
+// Pääohjelma
+// ----------------------------------------------------------------------
 int main(int argc, char** argv) {
   gROOT->SetBatch(kTRUE);
 
-  // Varmista ulostulohakemistot
-  gSystem->mkdir("plots2", true);    // kooste-PDF:t tänne
-
-  // koostesivuja varten valitut p-ikkunat
   std::vector<std::pair<double,double>> pBins = {
-    {5.5, 6.0}, {10.0, 12.0}, {20.0, 22.0}
-  };
+  {3,5},    // very low p
+  {8,12},   // low p
+  {18,25},  // medium-low p
+  {40,60},  // medium p
+  {70,85},  // high p
+  {90,100}  // very high p (edge of histogram)
+};
 
   if (argc > 1) {
     std::string a1 = argv[1];
 
-    if (a1 == "--compile-data") {
-      compile_response_pages(kFileData, "plots2/Data_ZeroBias2024/response_pages.pdf", pBins);
-      make_h2_maps_logx_pdf(kFileData, "Data_ZeroBias2024");
-    } else if (a1 == "--compile-mc") {
-      compile_response_pages(kFileMC,   "plots2/MC_SingleNeutrino2024/response_pages.pdf", pBins);
-      make_h2_maps_logx_pdf(kFileMC, "MC_SingleNeutrino2024");
-    } else if (a1 == "--compile-both") {
-      compile_response_pages(kFileData, "plots2/Data_ZeroBias2024/response_pages.pdf", pBins);
-      compile_response_pages(kFileMC,   "plots2/MC_SingleNeutrino2024/response_pages.pdf", pBins);
-      make_h2_maps_logx_pdf(kFileData, "Data_ZeroBias2024");
-      make_h2_maps_logx_pdf(kFileMC,   "MC_SingleNeutrino2024");
-    } else {
-      plot_histograms(a1);
+    if (a1 == "--resp2025") {
+      plot_response_distributions("/eos/user/m/mmarjama/my_pion_analysis/histograms/ZeroBias2025D.root",
+                                  "ZeroBias2025D", pBins);
+    }
+    else if (a1 == "--resp2024") {
+      plot_response_distributions("/eos/user/m/mmarjama/my_pion_analysis/histograms/ZeroBias2024_All.root",
+                                  "ZeroBias2024", pBins);
+    }
+    else if (a1 == "--overlay2024vs2025") {
+  // Run both versions automatically
+      plot_overlay_responses(
+        "/eos/user/m/mmarjama/my_pion_analysis/histograms/ZeroBias2025D.root", "Data 2025D",
+        "/eos/user/m/mmarjama/my_pion_analysis/histograms/ZeroBias2024_All.root", "Data 2024",
+        "/eos/user/m/mmarjama/my_pion_analysis/plots_overlay_2024vs2025",
+        pBins, false);  // no HCAL cut
+
+      plot_overlay_responses(
+        "/eos/user/m/mmarjama/my_pion_analysis/histograms/ZeroBias2025D.root", "Data 2025D",
+        "/eos/user/m/mmarjama/my_pion_analysis/histograms/ZeroBias2024_All.root", "Data 2024",
+        "/eos/user/m/mmarjama/my_pion_analysis/plots_overlay_2024vs2025",
+        pBins, true);   // with HCAL cut
+    }
+    else if (a1 == "--overlay2025DataMC") {
+      plot_overlay_responses(
+        "/eos/user/m/mmarjama/my_pion_analysis/histograms/ZeroBias2025D.root", "Data 2025D",
+        "/eos/user/m/mmarjama/my_pion_analysis/histograms/SingleNeutrino2025.root", "MC 2025D",
+        "/eos/user/m/mmarjama/my_pion_analysis/plots_overlay_DataMC_2025",
+        pBins);
+    }
+    else if (a1 == "--overlay2024DataMC") {
+      plot_overlay_responses(
+        "/eos/user/m/mmarjama/my_pion_analysis/histograms/ZeroBias2024_All.root", "Data 2024",
+        "/eos/user/m/mmarjama/my_pion_analysis/histograms/SingleNeutrino2024.root", "MC 2024",
+        "/eos/user/m/mmarjama/my_pion_analysis/plots_overlay_DataMC_2024",
+        pBins);
+    }
+    else {
+      std::cerr << "Unknown option. Use one of:\n"
+                << "  --resp2025\n  --resp2024\n"
+                << "  --overlay2024vs2025\n"
+                << "  --overlay2025DataMC\n"
+                << "  --overlay2024DataMC\n";
     }
   } else {
-    compile_response_pages(kFileData, "plots2/Data_ZeroBias2024/response_pages.pdf", pBins);
-    compile_response_pages(kFileMC,   "plots2/MC_SingleNeutrino2024/response_pages.pdf", pBins);
-    make_h2_maps_logx_pdf(kFileData, "Data_ZeroBias2024");
-    make_h2_maps_logx_pdf(kFileMC,   "MC_SingleNeutrino2024");
-    plot_histograms("dummy");
+    std::cerr << "Usage: ./plot_histograms [--resp2025 | --resp2024 | --overlay2024vs2025 | --overlay2025DataMC | --overlay2024DataMC]\n";
   }
 
   return 0;
