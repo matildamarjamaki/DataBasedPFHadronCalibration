@@ -19,3 +19,10 @@ irootfiles2025/
 *.png
 *.aux
 *.log
+run_all.sh.e*
+run_all.sh.o*
+*.txt
+*.h
+*.tex
+*.png
+*.pdf
