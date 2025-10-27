@@ -43,6 +43,11 @@ void compile_response_pages(const char* inpath,
                             const char* outpdf,
                             const std::vector<std::pair<double,double>>& pBins);
 void make_h2_maps_logx_pdf(const char* inpath, const char* outdirTag);
+// --- Forward declaration ---
+void plot_response_distributions(const char* filePath,
+                                 const char* tag,
+                                 const std::vector<std::pair<double,double>>& bins);
+
 
 
 // Yhteiset tiedostopolut (DATA & MC sisäänmenohistot, sekä ulostulopohjakansio)
@@ -301,7 +306,7 @@ auto fit3G = [&](TH2D* h2, const char* tag, const char* ytitle) {
         TH1D* proj = h2->ProjectionY(hname.c_str(), x1, x2);
         if (!proj || proj->Integral() <= 0) continue;
         proj->SetDirectory(nullptr);
-        proj->Scale(1.0 / proj->Integral());
+        // proj->Scale(1.0 / proj->Integral());
 
         TF1* fit = new TF1((hname + "_fit").c_str(), "gaus(0)+gaus(3)+gaus(6)", 0.0, 2.5);
         // amp1, mean1, sigma1,  amp2, mean2, sigma2,  amp3, mean3, sigma3 (alut voi säätää)
@@ -377,7 +382,7 @@ if (h2_def_all) {
         TH1D* hproj = h2_def_all->ProjectionY(projName.c_str(), bin_min, bin_max);
         if (!hproj || hproj->Integral() == 0) { delete hproj; continue; }
 
-        hproj->Scale(1.0 / hproj->Integral()); // normalisoi muoto
+        // hproj->Scale(1.0 / hproj->Integral()); // normalisoi muoto
         TF1* fit = new TF1((projName + "_fit").c_str(), "gaus", 0.7, 1.2);
         hproj->Fit(fit, "RQ");
 
@@ -434,7 +439,7 @@ if (h3) {
         TH1D* hproj = h3->ProjectionX(projName.c_str(), y_min, y_max, z_min, z_max);
         if (!hproj || hproj->Integral() == 0) { delete hproj; continue; }
 
-        hproj->Scale(1.0 / hproj->Integral());
+        // hproj->Scale(1.0 / hproj->Integral());
         TF1* fit = new TF1((projName + "_fit").c_str(), "gaus", 0.7, 1.2);
         hproj->Fit(fit, "RQ");
 
@@ -553,7 +558,7 @@ for (const auto& cs : cases) {
       TH1D* hproj = h3->ProjectionX(projName.c_str(), y_min, y_max, z_min, z_max);
       if (!hproj || hproj->Integral() == 0) { delete hproj; continue; }
 
-      hproj->Scale(1.0 / hproj->Integral());
+      // hproj->Scale(1.0 / hproj->Integral());
       hproj->SetTitle(Form("E/p (%s, %s), %.1f - %.1f GeV", label.c_str(), cs.tag.c_str(), pmin, pmax));
       hproj->GetXaxis()->SetTitle("E/p");
       hproj->GetYaxis()->SetTitle("Fraction of particles");
@@ -656,7 +661,7 @@ for (const auto& cs : cases) {
     TH1D* hproj = h3->ProjectionX(projName.c_str(), y_min, y_max, z_min, z_max);
     if (!hproj || hproj->Integral() == 0) { delete hproj; continue; }
 
-    hproj->Scale(1.0 / hproj->Integral());
+    // hproj->Scale(1.0 / hproj->Integral());
 
     TCanvas* c = new TCanvas(("canvas_" + projName).c_str(), "", 800, 600);
     hproj->SetTitle(Form("E/p (%s, %s), all p", label.c_str(), cs.tag.c_str()));
@@ -763,7 +768,7 @@ if (h3_H && h3_E && h3_MIP && h3_EH) {
 
     for (auto& c : comps) {
       if (!c.h || c.h->Integral() == 0) continue;
-      c.h->Scale(1.0 / total);
+      // c.h->Scale(1.0 / total);
       c.h->SetFillColor(c.col);
       c.h->SetLineColor(kBlack);
       c.h->SetLineWidth(1);
@@ -1065,8 +1070,8 @@ void plot_ep_overlay() {
   h_data->GetXaxis()->SetRangeUser(0.05, 2.5);
 
   // ---- Normalisoi muotoon ----
-  if (h_mc->Integral()   > 0) h_mc  ->Scale(1.0 / h_mc->Integral());
-  if (h_data->Integral() > 0) h_data->Scale(1.0 / h_data->Integral());
+  // if (h_mc->Integral()   > 0) h_mc  ->Scale(1.0 / h_mc->Integral());
+  // if (h_data->Integral() > 0) h_data->Scale(1.0 / h_data->Integral());
 
   // tyyli
   h_mc->SetLineColor(kBlack);  h_mc->SetLineWidth(2);  h_mc->SetLineStyle(1);
@@ -1302,390 +1307,441 @@ void plot_stacked_comparison_raw(bool useHCALCut) {
 }
 
 
-void compile_response_pages(const char* inpath,
-                            const char* outpdf,
-                            const std::vector<std::pair<double,double>>& pBins)
-{
-  gStyle->SetOptStat(0);
-
-  // Avaa input
-  std::unique_ptr<TFile> f(TFile::Open(inpath, "READ"));
-  if (!f || f->IsZombie()) {
-    std::cerr << "[compile_response_pages] Cannot open " << inpath << "\n";
-    return;
-  }
-
-  // 4 skenaariota (kolumnit)
-  struct Scn {
-    const char* colTitle;  // otsikko ylös
-    const char* h2;        // ALL-histo (2D), X = p, Y = E/p
-    const char* h3prefix;  // HUOM: ei "isHad" tässä!
-    const char* h3suffix;  // loppuosa per-tyyppi-3D:n nimeen
-    bool useHcalCut;       // rajoitetaanko Y 0.9–2.5
-  } scn[4] = {
-    // S1: Raw E/p, HCAL-cut -> nimet: h3_resp_raw_p_isHad*_cut
-    {"Raw/p, HCAL cut",       "h2_ep_vs_p_S1_raw_cut",  "h3_resp_raw_p_",  "_cut", true },
-
-    // S2: Default E/p, HCAL-cut -> nimet: h3_resp_corr_p_isHad*  (EI _cut/_all -päätettä!)
-    {"Default/p, HCAL cut",   "h2_ep_vs_p_S2_def_cut",  "h3_resp_corr_p_", "",     true },
-
-    // S3: Raw E/p, no cut -> nimet: h3_resp_raw_p_isHad*_all
-    {"Raw/p, no cut",         "h2_ep_vs_p_S3_raw_all",  "h3_resp_raw_p_",  "_all", false},
-
-    // S4: Default E/p, no cut -> nimet: h3_resp_def_p_isHad*_all
-    {"Default/p, no cut",     "h2_ep_vs_p_S4_def_all",  "h3_resp_def_p_",  "_all", false}
-  };
-
-// Rivit: ALL + 4 kategoriaa (näissä "isHad*" säilyy)
-struct TypeRow { const char* key; const char* label; Color_t col; } rows[5] = {
-  {"",        "ALL",        kBlack     }, // ALL-rivi käyttää 2D:tä (h2)
-  {"isHadH",  "HCAL only",  kRed+1     },
-  {"isHadE",  "ECAL only",  kBlue+1    },
-  {"isHadMIP","MIP",        kGreen+2   },
-  {"isHadEH", "ECAL+HCAL",  kMagenta+2 }
-};
 
 
 
-  // Luo kansio outpdf:n polusta
-  std::string pdfPath = outpdf;
-  const char* outDir = gSystem->DirName(pdfPath.c_str());
-  gSystem->mkdir(outDir, true);
 
-  // Canvas: 5 riviä x 4 kolumnia
-  TCanvas c("c_comp", "Response compilation", 2000, 1400);
-  c.Divide(4, 5, 0.001, 0.001);
 
-  // Aloita monisivu-PDF
-  c.Print((pdfPath + "[").c_str()); // open
 
-  // 1 sivu / p-alue
-  for (size_t ip=0; ip<pBins.size(); ++ip) {
-    const double pmin = pBins[ip].first;
-    const double pmax = pBins[ip].second;
 
-    for (int r=0; r<5; ++r) {
-      for (int j=0; j<4; ++j) {
-        c.cd(r*4 + (j+1));
 
-        TH1* hdraw = nullptr;
 
-        if (r == 0) {
-          // ALL: 2D → projisoi Y (E/p)
-          TH2D* h2 = dynamic_cast<TH2D*>(f->Get(scn[j].h2));
-          if (!h2) { TLatex t; t.SetNDC(); t.DrawLatex(0.2,0.5,"[missing 2D]"); continue; }
-          const int x1 = h2->GetXaxis()->FindBin(pmin+1e-3);
-          const int x2 = h2->GetXaxis()->FindBin(pmax-1e-3);
-          TH1D* py = h2->ProjectionY(Form("py_%zu_%d_%d", ip, r, j), x1, x2);
-          if (!py || py->Integral()==0) { delete py; TLatex t; t.SetNDC(); t.DrawLatex(0.2,0.5,"[empty]"); continue; }
-          py->SetDirectory(nullptr);
-          py->SetLineColor(rows[r].col);
-          py->GetXaxis()->SetTitle("E/p");
-          py->GetYaxis()->SetTitle("Entries");
-          py->GetXaxis()->SetRangeUser(0.05, 2.5);
-          hdraw = py;
-        } else {
-          // Per-tyyppi: 3D → projisoi X (E/p)
-          std::string h3name = std::string(scn[j].h3prefix) + rows[r].key + scn[j].h3suffix;
-          TH3D* h3 = dynamic_cast<TH3D*>(f->Get(h3name.c_str()));
-          if (!h3) { TLatex t; t.SetNDC(); t.DrawLatex(0.2,0.5,"[missing 3D]"); continue; }
 
-          int y1 = h3->GetYaxis()->GetFirst();
-          int y2 = h3->GetYaxis()->GetLast();
-          if (scn[j].useHcalCut) {
-            y1 = h3->GetYaxis()->FindBin(0.9001);
-            y2 = h3->GetYaxis()->FindBin(2.4999);
-          }
 
-          const int z1 = h3->GetZaxis()->FindBin(pmin+1e-3);
-          const int z2 = h3->GetZaxis()->FindBin(pmax-1e-3);
-          TH1D* px = h3->ProjectionX(Form("px_%zu_%d_%d", ip, r, j), y1, y2, z1, z2);
-          if (!px || px->Integral()==0) { delete px; TLatex t; t.SetNDC(); t.DrawLatex(0.2,0.5,"[empty]"); continue; }
-          px->SetDirectory(nullptr);
-          px->SetLineColor(rows[r].col);
-          px->GetXaxis()->SetTitle("E/p");
-          px->GetYaxis()->SetTitle("Entries");
-          px->GetXaxis()->SetRangeUser(0.05, 2.5);
-          hdraw = px;
-        }
 
-        // Piirto (raaka jakauma, ei norm/fittiä)
-        hdraw->SetLineWidth(2);
-        hdraw->Draw("HIST");
 
-        // Riviteksti vasemmalle
-        if (j==0) {
-          TLatex lab; lab.SetNDC(); lab.SetTextSize(0.040);
-          lab.DrawLatex(0.10, 0.88, rows[r].label);
-        }
 
-        // Kolumniotsikko + p-alue (piirrä lopuksi)
-        if (r==0) {
-          TLatex t; t.SetNDC(); t.SetTextAlign(22); t.SetTextSize(0.045);
-          t.DrawLatex(0.5, 0.94, scn[j].colTitle);
-          TLatex ptxt; ptxt.SetNDC(); ptxt.SetTextSize(0.035);
-          ptxt.DrawLatex(0.5, 0.88, Form("p = %.1f - %.1f GeV", pmin, pmax));
-        }
 
-        // Entries
-        TLatex ent; ent.SetNDC(); ent.SetTextSize(0.030);
-        ent.DrawLatex(0.78, 0.80, Form("N = %.0f", hdraw->GetEntries()));
-      }
-    }
+// void compile_response_pages(const char* inpath,
+//                             const char* outpdf,
+//                             const std::vector<std::pair<double,double>>& pBins)
+// {
+//   gStyle->SetOptStat(0);
 
-    c.Update();
-    c.Print(pdfPath.c_str()); // yksi sivu ulos
-  }
+//   // Avaa input
+//   std::unique_ptr<TFile> f(TFile::Open(inpath, "READ"));
+//   if (!f || f->IsZombie()) {
+//     std::cerr << "[compile_response_pages] Cannot open " << inpath << "\n";
+//     return;
+//   }
 
-  // Sulje PDF
-  c.Print((pdfPath + "]").c_str());
-}
+//   // 4 skenaariota (kolumnit)
+//   struct Scn {
+//     const char* colTitle;  // otsikko ylös
+//     const char* h2;        // ALL-histo (2D), X = p, Y = E/p
+//     const char* h3prefix;  // HUOM: ei "isHad" tässä!
+//     const char* h3suffix;  // loppuosa per-tyyppi-3D:n nimeen
+//     bool useHcalCut;       // rajoitetaanko Y 0.9–2.5
+//   } scn[4] = {
+//     // S1: Raw E/p, HCAL-cut -> nimet: h3_resp_raw_p_isHad*_cut
+//     {"Raw/p, HCAL cut",       "h2_ep_vs_p_S1_raw_cut",  "h3_resp_raw_p_",  "_cut", true },
+
+//     // S2: Default E/p, HCAL-cut -> nimet: h3_resp_corr_p_isHad*  (EI _cut/_all -päätettä!)
+//     {"Default/p, HCAL cut",   "h2_ep_vs_p_S2_def_cut",  "h3_resp_corr_p_", "",     true },
+
+//     // S3: Raw E/p, no cut -> nimet: h3_resp_raw_p_isHad*_all
+//     {"Raw/p, no cut",         "h2_ep_vs_p_S3_raw_all",  "h3_resp_raw_p_",  "_all", false},
+
+//     // S4: Default E/p, no cut -> nimet: h3_resp_def_p_isHad*_all
+//     {"Default/p, no cut",     "h2_ep_vs_p_S4_def_all",  "h3_resp_def_p_",  "_all", false}
+//   };
+
+// // Rivit: ALL + 4 kategoriaa (näissä "isHad*" säilyy)
+// struct TypeRow { const char* key; const char* label; Color_t col; } rows[5] = {
+//   {"",        "ALL",        kBlack     }, // ALL-rivi käyttää 2D:tä (h2)
+//   {"isHadH",  "HCAL only",  kRed+1     },
+//   {"isHadE",  "ECAL only",  kBlue+1    },
+//   {"isHadMIP","MIP",        kGreen+2   },
+//   {"isHadEH", "ECAL+HCAL",  kMagenta+2 }
+// };
+
+
+
+//   // Luo kansio outpdf:n polusta
+//   std::string pdfPath = outpdf;
+//   const char* outDir = gSystem->DirName(pdfPath.c_str());
+//   gSystem->mkdir(outDir, true);
+
+//   // Canvas: 5 riviä x 4 kolumnia
+//   TCanvas c("c_comp", "Response compilation", 2000, 1400);
+//   c.Divide(4, 5, 0.001, 0.001);
+
+//   // Aloita monisivu-PDF
+//   c.Print((pdfPath + "[").c_str()); // open
+
+//   // 1 sivu / p-alue
+//   for (size_t ip=0; ip<pBins.size(); ++ip) {
+//     const double pmin = pBins[ip].first;
+//     const double pmax = pBins[ip].second;
+
+//     for (int r=0; r<5; ++r) {
+//       for (int j=0; j<4; ++j) {
+//         c.cd(r*4 + (j+1));
+
+//         TH1* hdraw = nullptr;
+
+//         if (r == 0) {
+//           // ALL: 2D → projisoi Y (E/p)
+//           TH2D* h2 = dynamic_cast<TH2D*>(f->Get(scn[j].h2));
+//           if (!h2) { TLatex t; t.SetNDC(); t.DrawLatex(0.2,0.5,"[missing 2D]"); continue; }
+//           const int x1 = h2->GetXaxis()->FindBin(pmin+1e-3);
+//           const int x2 = h2->GetXaxis()->FindBin(pmax-1e-3);
+//           TH1D* py = h2->ProjectionY(Form("py_%zu_%d_%d", ip, r, j), x1, x2);
+//           if (!py || py->Integral()==0) { delete py; TLatex t; t.SetNDC(); t.DrawLatex(0.2,0.5,"[empty]"); continue; }
+//           py->SetDirectory(nullptr);
+//           py->SetLineColor(rows[r].col);
+//           py->GetXaxis()->SetTitle("E/p");
+//           py->GetYaxis()->SetTitle("Entries");
+//           py->GetXaxis()->SetRangeUser(0.05, 2.5);
+//           hdraw = py;
+//         } else {
+//           // Per-tyyppi: 3D → projisoi X (E/p)
+//           std::string h3name = std::string(scn[j].h3prefix) + rows[r].key + scn[j].h3suffix;
+//           TH3D* h3 = dynamic_cast<TH3D*>(f->Get(h3name.c_str()));
+//           if (!h3) { TLatex t; t.SetNDC(); t.DrawLatex(0.2,0.5,"[missing 3D]"); continue; }
+
+//           int y1 = h3->GetYaxis()->GetFirst();
+//           int y2 = h3->GetYaxis()->GetLast();
+//           if (scn[j].useHcalCut) {
+//             y1 = h3->GetYaxis()->FindBin(0.9001);
+//             y2 = h3->GetYaxis()->FindBin(2.4999);
+//           }
+
+//           const int z1 = h3->GetZaxis()->FindBin(pmin+1e-3);
+//           const int z2 = h3->GetZaxis()->FindBin(pmax-1e-3);
+//           TH1D* px = h3->ProjectionX(Form("px_%zu_%d_%d", ip, r, j), y1, y2, z1, z2);
+//           if (!px || px->Integral()==0) { delete px; TLatex t; t.SetNDC(); t.DrawLatex(0.2,0.5,"[empty]"); continue; }
+//           px->SetDirectory(nullptr);
+//           px->SetLineColor(rows[r].col);
+//           px->GetXaxis()->SetTitle("E/p");
+//           px->GetYaxis()->SetTitle("Entries");
+//           px->GetXaxis()->SetRangeUser(0.05, 2.5);
+//           hdraw = px;
+//         }
+
+//         // Piirto (raaka jakauma, ei norm/fittiä)
+//         hdraw->SetLineWidth(2);
+//         hdraw->Draw("HIST");
+
+//         // Riviteksti vasemmalle
+//         if (j==0) {
+//           TLatex lab; lab.SetNDC(); lab.SetTextSize(0.040);
+//           lab.DrawLatex(0.10, 0.88, rows[r].label);
+//         }
+
+//         // Kolumniotsikko + p-alue (piirrä lopuksi)
+//         if (r==0) {
+//           TLatex t; t.SetNDC(); t.SetTextAlign(22); t.SetTextSize(0.045);
+//           t.DrawLatex(0.5, 0.94, scn[j].colTitle);
+//           TLatex ptxt; ptxt.SetNDC(); ptxt.SetTextSize(0.035);
+//           ptxt.DrawLatex(0.5, 0.88, Form("p = %.1f - %.1f GeV", pmin, pmax));
+//         }
+
+//         // Entries
+//         TLatex ent; ent.SetNDC(); ent.SetTextSize(0.030);
+//         ent.DrawLatex(0.78, 0.80, Form("N = %.0f", hdraw->GetEntries()));
+//       }
+//     }
+
+//     c.Update();
+//     c.Print(pdfPath.c_str()); // yksi sivu ulos
+//   }
+
+//   // Sulje PDF
+//   c.Print((pdfPath + "]").c_str());
+// }
+
+// // --- 2D heatmapit log-x:llä + profiilit + monisivuinen PDF ---
+// void make_h2_maps_logx_pdf(const char* inpath, const char* outdirTag) {
+//   gStyle->SetPalette(kBird);
+
+//   std::unique_ptr<TFile> f(TFile::Open(inpath, "READ"));
+//   if (!f || f->IsZombie()) {
+//     std::cerr << "[make_h2_maps_logx_pdf] cannot open " << inpath << "\n";
+//     return;
+//   }
+
+//   // Ulostulokansio
+//   std::string outdir = std::string("plots2/") + outdirTag + "/h2_maps_logx";
+//   gSystem->mkdir(outdir.c_str(), true);
+
+//   // PDF-tiedosto
+//   std::string pdfPath = outdir + "/h2_maps_logx.pdf";
+//   bool firstPage = true;
+
+//   // Skenaariot
+//   struct Scn {
+//     const char* tag;
+//     const char* h2_all;
+//     const char* h3pref;
+//     const char* h3suff;
+//     bool hcalCut;
+//   } S[4] = {
+//     {"S1_raw_cut", "h2_ep_vs_p_S1_raw_cut", "h3_resp_raw_p_",  "_cut", true },
+//     {"S2_def_cut", "h2_ep_vs_p_S2_def_cut", "h3_resp_corr_p_", "",     true },
+//     {"S3_raw_all", "h2_ep_vs_p_S3_raw_all", "h3_resp_raw_p_",  "_all", false},
+//     {"S4_def_all", "h2_ep_vs_p_S4_def_all", "h3_resp_def_p_",  "_all", false}
+//   };
+
+//   struct Row {
+//     const char* key;
+//     const char* label;
+//   } R[5] = {
+//     {"",       "ALL"},
+//     {"isHadH", "HCAL only"},
+//     {"isHadE", "ECAL only"},
+//     {"isHadMIP","MIP"},
+//     {"isHadEH","ECAL+HCAL"}
+//   };
+
+//   // 1) ALL-kartat
+//   for (int j = 0; j < 4; ++j) {
+//     if (auto* h2 = dynamic_cast<TH2D*>(f->Get(S[j].h2_all))) {
+//       TCanvas c(Form("c_%s_ALL", S[j].tag), "", 900, 750);
+//       c.SetRightMargin(0.12);
+//       gPad->SetLogx();
+//       h2->SetTitle(Form("%s - ALL;p (GeV);E/p", S[j].tag));
+//       h2->Draw("COLZ");
+
+//       // Profiili
+//       auto* prof = h2->ProfileX(Form("prof_%s_ALL", S[j].tag));
+//       if (prof) {
+//         prof->SetLineWidth(2);
+//         prof->Draw("SAME");
+//       }
+
+//       std::string pdfCmd = pdfPath + (firstPage ? "(" : "");
+//       c.SaveAs(pdfCmd.c_str());
+//       firstPage = false;
+//     }
+//   }
+
+//   // 2) Per-tyyppi kartat
+//   for (int r = 1; r < 5; ++r) { // skip R[0] = ALL
+//     for (int j = 0; j < 4; ++j) {
+//       std::string h3name = std::string(S[j].h3pref) + R[r].key + S[j].h3suff;
+//       auto* h3 = dynamic_cast<TH3D*>(f->Get(h3name.c_str()));
+//       if (!h3) continue;
+
+//       int y1 = h3->GetYaxis()->GetFirst();
+//       int y2 = h3->GetYaxis()->GetLast();
+//       if (S[j].hcalCut) {
+//         y1 = h3->GetYaxis()->FindBin(0.9001);
+//         y2 = h3->GetYaxis()->FindBin(2.4999);
+//       }
+//       h3->GetYaxis()->SetRange(y1, y2);
+
+//       auto* h2 = dynamic_cast<TH2D*>(h3->Project3D("zx")); // p vs E/p
+//       if (!h2) {
+//         h3->GetYaxis()->UnZoom();
+//         continue;
+//       }
+
+//       h2->SetTitle(Form("%s - %s;p (GeV);E/p", S[j].tag, R[r].label));
+//       TCanvas c(Form("c_%s_%s", S[j].tag, R[r].key), "", 900, 750);
+//       c.SetRightMargin(0.12);
+//       gPad->SetLogx();
+//       h2->Draw("COLZ");
+
+//       auto* prof = h2->ProfileX(Form("prof_%s_%s", S[j].tag, R[r].key));
+//       if (prof) {
+//         prof->SetLineWidth(2);
+//         prof->Draw("SAME");
+//       }
+
+//       c.SaveAs(pdfPath.c_str());
+//       h3->GetYaxis()->UnZoom();
+//     }
+//   }
+
+//   // Sulje PDF
+//   {
+//     TCanvas ctmp;
+//     std::string closeCmd = pdfPath + ")";
+//     ctmp.SaveAs(closeCmd.c_str());
+//   }
+// }
+
+
+// // --- 2024 vs 2025 ZeroBias -vuosivertailu ---
+// void compare_zerobias_years(const char* file2024, const char* file2025) {
+//   // Avaa ROOT-tiedostot
+//   std::unique_ptr<TFile> f24(TFile::Open(file2024,"READ"));
+//   std::unique_ptr<TFile> f25(TFile::Open(file2025,"READ"));
+//   if (!f24 || f24->IsZombie() || !f25 || f25->IsZombie()) {
+//     std::cerr << "[compare_zerobias_years] virhe: tiedostojen avaus epäonnistui\n";
+//     return;
+//   }
+
+//   // Profiilien nimet ja selkeät otsikot
+//   struct PlotCfg {
+//     std::string key;
+//     std::string title;
+//   };
+//   std::vector<PlotCfg> configs = {
+//     {"prof_ep_vs_p_S1_raw_cut", "S1: Raw E/p vs p (HCAL cut)"},
+//     {"prof_ep_vs_p_S2_def_cut", "S2: Default corrected E/p vs p (HCAL cut)"},
+//     {"prof_ep_vs_p_S4_def_all", "S4: Default corrected E/p vs p (no cut)"}
+//   };
+
+//   // Tee ulostulokansio
+//   gSystem->mkdir("plots_compare", true);
+
+//   // Loopataan profiilit
+//   for (auto& cfg : configs) {
+//     auto* h24 = dynamic_cast<TProfile*>(f24->Get(cfg.key.c_str()));
+//     auto* h25 = dynamic_cast<TProfile*>(f25->Get(cfg.key.c_str()));
+
+//     if (!h24 || !h25) {
+//       std::cerr << "[compare_zerobias_years] histogrammia " << cfg.key << " ei löytynyt\n";
+//       continue;
+//     }
+
+//     // Muotoilu
+//     h24->SetLineColor(kBlue); h24->SetLineWidth(2);
+//     h25->SetLineColor(kRed);  h25->SetLineWidth(2);
+
+//     // Luo canvas selkeällä otsikolla
+//     TCanvas c(("c_"+cfg.key).c_str(), cfg.title.c_str(), 900, 700);
+//     c.SetLogx();
+
+//     h24->SetTitle((cfg.title + ";p (GeV);E/p").c_str());
+//     h24->Draw("E1");
+//     h25->Draw("E1 SAME");
+
+//     auto leg = new TLegend(0.6,0.7,0.88,0.88);
+//     leg->AddEntry(h24,"ZeroBias 2024","l");
+//     leg->AddEntry(h25,"ZeroBias 2025","l");
+//     leg->Draw();
+
+//     // Tallenna tiedosto
+//     std::string outname = "plots_compare/compare_" + cfg.key + ".png";
+//     c.SaveAs(outname.c_str());
+
+//     std::cout << "[compare_zerobias_years] Saved " << outname << std::endl;
+//   }
+// }
+
+
+// void compile_response_pages(const char* inpath,
+//                             const char* outpdf,
+//                             const std::vector<std::pair<double,double>>& pBins)
+// {
+//   gStyle->SetOptStat(0);
+// }
+
+// // ----------------------------------------------------------------------
+// // Piirretään E/p-jakaumat valituille p-alueille (HCAL only, yksittäinen datasetti)
+// // ----------------------------------------------------------------------
+// void plot_response_distributions(const char* filePath,
+//                                  const char* tag,
+//                                  const std::vector<std::pair<double,double>>& bins) {
+//   std::unique_ptr<TFile> f(TFile::Open(filePath, "READ"));
+//   if (!f || f->IsZombie()) {
+//     std::cerr << "[plot_response_distributions] cannot open " << filePath << "\n";
+//     return;
+//   }
+
+//   auto* h3 = dynamic_cast<TH3D*>(f->Get("h3_resp_def_p_isHadH_all"));
+//   if (!h3) {
+//     std::cerr << "[plot_response_distributions] histogram 'h3_resp_def_p_isHadH_all' not found\n";
+//     return;
+//   }
+
+//   std::cout << "[INFO] Opened " << filePath << std::endl;
+//   std::cout << "[INFO] Histogram range in p: " 
+//             << h3->GetZaxis()->GetXmin() << " - " << h3->GetZaxis()->GetXmax() << " GeV" << std::endl;
+
+//   std::string baseplots = "/eos/user/m/mmarjama/my_pion_analysis/plots2025";
+//   gSystem->mkdir(baseplots.c_str(), true);
+
+//   std::string datasetDir = baseplots + "/" + std::string(tag) + "/resp_dists";
+//   gSystem->mkdir(datasetDir.c_str(), true);
+
+//   int idx = 0;
+//   for (auto& bin : bins) {
+//     double pmin = bin.first;
+//     double pmax = bin.second;
+
+//     int z1 = h3->GetZaxis()->FindBin(pmin + 1e-3);
+//     int z2 = h3->GetZaxis()->FindBin(pmax - 1e-3);
+//     if (z2 <= z1) z2 = z1 + 1; // varmistetaan että projektion alue ei ole tyhjä
+
+//     std::cout << "[DEBUG] Projecting p range " << pmin << "-" << pmax 
+//               << " GeV  (z1=" << z1 << ", z2=" << z2 << ")" << std::endl;
+
+//     auto* h1 = h3->ProjectionX(Form("proj_ep_%s_bin%d", tag, idx), 1, -1, z1, z2);
+//     if (!h1 || h1->GetEntries() == 0) {
+//       std::cout << "[WARN] No entries in bin " << pmin << "-" << pmax << " GeV" << std::endl;
+//       ++idx;
+//       continue;
+//     }
+
+//     h1->SetLineWidth(2);
+//     h1->SetLineColor(kBlue + idx);
+//     h1->SetTitle(Form("E/p distribution (HCAL only) — %.1f < p < %.1f GeV;E/p;Events", pmin, pmax));
+
+//     TCanvas c(Form("c_resp_%s_bin%d", tag, idx), "", 800, 600);
+//     h1->Draw("HIST E");
+
+//     std::string outname = Form("%s/respDist_%s_%.0f_%.0f.png", datasetDir.c_str(), tag, pmin, pmax);
+//     std::cout << "[INFO] Saving " << outname << std::endl;
+//     c.SaveAs(outname.c_str());
+//     ++idx;
+//   }
+// }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // --- 2D heatmapit log-x:llä + profiilit + monisivuinen PDF ---
 void make_h2_maps_logx_pdf(const char* inpath, const char* outdirTag) {
   gStyle->SetPalette(kBird);
 
-  std::unique_ptr<TFile> f(TFile::Open(inpath, "READ"));
-  if (!f || f->IsZombie()) {
-    std::cerr << "[make_h2_maps_logx_pdf] cannot open " << inpath << "\n";
-    return;
-  }
-
-  // Ulostulokansio
-  std::string outdir = std::string("plots2/") + outdirTag + "/h2_maps_logx";
-  gSystem->mkdir(outdir.c_str(), true);
-
-  // PDF-tiedosto
-  std::string pdfPath = outdir + "/h2_maps_logx.pdf";
-  bool firstPage = true;
-
-  // Skenaariot
-  struct Scn {
-    const char* tag;
-    const char* h2_all;
-    const char* h3pref;
-    const char* h3suff;
-    bool hcalCut;
-  } S[4] = {
-    {"S1_raw_cut", "h2_ep_vs_p_S1_raw_cut", "h3_resp_raw_p_",  "_cut", true },
-    {"S2_def_cut", "h2_ep_vs_p_S2_def_cut", "h3_resp_corr_p_", "",     true },
-    {"S3_raw_all", "h2_ep_vs_p_S3_raw_all", "h3_resp_raw_p_",  "_all", false},
-    {"S4_def_all", "h2_ep_vs_p_S4_def_all", "h3_resp_def_p_",  "_all", false}
-  };
-
-  struct Row {
-    const char* key;
-    const char* label;
-  } R[5] = {
-    {"",       "ALL"},
-    {"isHadH", "HCAL only"},
-    {"isHadE", "ECAL only"},
-    {"isHadMIP","MIP"},
-    {"isHadEH","ECAL+HCAL"}
-  };
-
-  // 1) ALL-kartat
-  for (int j = 0; j < 4; ++j) {
-    if (auto* h2 = dynamic_cast<TH2D*>(f->Get(S[j].h2_all))) {
-      TCanvas c(Form("c_%s_ALL", S[j].tag), "", 900, 750);
-      c.SetRightMargin(0.12);
-      gPad->SetLogx();
-      h2->SetTitle(Form("%s - ALL;p (GeV);E/p", S[j].tag));
-      h2->Draw("COLZ");
-
-      // Profiili
-      auto* prof = h2->ProfileX(Form("prof_%s_ALL", S[j].tag));
-      if (prof) {
-        prof->SetLineWidth(2);
-        prof->Draw("SAME");
-      }
-
-      std::string pdfCmd = pdfPath + (firstPage ? "(" : "");
-      c.SaveAs(pdfCmd.c_str());
-      firstPage = false;
-    }
-  }
-
-  // 2) Per-tyyppi kartat
-  for (int r = 1; r < 5; ++r) { // skip R[0] = ALL
-    for (int j = 0; j < 4; ++j) {
-      std::string h3name = std::string(S[j].h3pref) + R[r].key + S[j].h3suff;
-      auto* h3 = dynamic_cast<TH3D*>(f->Get(h3name.c_str()));
-      if (!h3) continue;
-
-      int y1 = h3->GetYaxis()->GetFirst();
-      int y2 = h3->GetYaxis()->GetLast();
-      if (S[j].hcalCut) {
-        y1 = h3->GetYaxis()->FindBin(0.9001);
-        y2 = h3->GetYaxis()->FindBin(2.4999);
-      }
-      h3->GetYaxis()->SetRange(y1, y2);
-
-      auto* h2 = dynamic_cast<TH2D*>(h3->Project3D("zx")); // p vs E/p
-      if (!h2) {
-        h3->GetYaxis()->UnZoom();
-        continue;
-      }
-
-      h2->SetTitle(Form("%s - %s;p (GeV);E/p", S[j].tag, R[r].label));
-      TCanvas c(Form("c_%s_%s", S[j].tag, R[r].key), "", 900, 750);
-      c.SetRightMargin(0.12);
-      gPad->SetLogx();
-      h2->Draw("COLZ");
-
-      auto* prof = h2->ProfileX(Form("prof_%s_%s", S[j].tag, R[r].key));
-      if (prof) {
-        prof->SetLineWidth(2);
-        prof->Draw("SAME");
-      }
-
-      c.SaveAs(pdfPath.c_str());
-      h3->GetYaxis()->UnZoom();
-    }
-  }
-
-  // Sulje PDF
-  {
-    TCanvas ctmp;
-    std::string closeCmd = pdfPath + ")";
-    ctmp.SaveAs(closeCmd.c_str());
-  }
 }
-
-
-// --- 2024 vs 2025 ZeroBias -vuosivertailu ---
-void compare_zerobias_years(const char* file2024, const char* file2025) {
-  // Avaa ROOT-tiedostot
-  std::unique_ptr<TFile> f24(TFile::Open(file2024,"READ"));
-  std::unique_ptr<TFile> f25(TFile::Open(file2025,"READ"));
-  if (!f24 || f24->IsZombie() || !f25 || f25->IsZombie()) {
-    std::cerr << "[compare_zerobias_years] virhe: tiedostojen avaus epäonnistui\n";
-    return;
-  }
-
-  // Profiilien nimet ja selkeät otsikot
-  struct PlotCfg {
-    std::string key;
-    std::string title;
-  };
-  std::vector<PlotCfg> configs = {
-    {"prof_ep_vs_p_S1_raw_cut", "S1: Raw E/p vs p (HCAL cut)"},
-    {"prof_ep_vs_p_S2_def_cut", "S2: Default corrected E/p vs p (HCAL cut)"},
-    {"prof_ep_vs_p_S4_def_all", "S4: Default corrected E/p vs p (no cut)"}
-  };
-
-  // Tee ulostulokansio
-  gSystem->mkdir("plots_compare", true);
-
-  // Loopataan profiilit
-  for (auto& cfg : configs) {
-    auto* h24 = dynamic_cast<TProfile*>(f24->Get(cfg.key.c_str()));
-    auto* h25 = dynamic_cast<TProfile*>(f25->Get(cfg.key.c_str()));
-
-    if (!h24 || !h25) {
-      std::cerr << "[compare_zerobias_years] histogrammia " << cfg.key << " ei löytynyt\n";
-      continue;
-    }
-
-    // Muotoilu
-    h24->SetLineColor(kBlue); h24->SetLineWidth(2);
-    h25->SetLineColor(kRed);  h25->SetLineWidth(2);
-
-    // Luo canvas selkeällä otsikolla
-    TCanvas c(("c_"+cfg.key).c_str(), cfg.title.c_str(), 900, 700);
-    c.SetLogx();
-
-    h24->SetTitle((cfg.title + ";p (GeV);E/p").c_str());
-    h24->Draw("E1");
-    h25->Draw("E1 SAME");
-
-    auto leg = new TLegend(0.6,0.7,0.88,0.88);
-    leg->AddEntry(h24,"ZeroBias 2024","l");
-    leg->AddEntry(h25,"ZeroBias 2025","l");
-    leg->Draw();
-
-    // Tallenna tiedosto
-    std::string outname = "plots_compare/compare_" + cfg.key + ".png";
-    c.SaveAs(outname.c_str());
-
-    std::cout << "[compare_zerobias_years] Saved " << outname << std::endl;
-  }
-}
-
-
-void compile_response_pages(const char* inpath,
-                            const char* outpdf,
-                            const std::vector<std::pair<double,double>>& pBins)
-{
-  gStyle->SetOptStat(0);
-
-
-// ----------------------------------------------------------------------
-// Piirretään E/p-jakaumat valituille p-alueille (HCAL only, yksittäinen datasetti)
-// ----------------------------------------------------------------------
-void plot_response_distributions(const char* filePath,
-                                 const char* tag,
-                                 const std::vector<std::pair<double,double>>& bins) {
-  std::unique_ptr<TFile> f(TFile::Open(filePath, "READ"));
-  if (!f || f->IsZombie()) {
-    std::cerr << "[plot_response_distributions] cannot open " << filePath << "\n";
-    return;
-  }
-
-  auto* h3 = dynamic_cast<TH3D*>(f->Get("h3_resp_def_p_isHadH_all"));
-  if (!h3) {
-    std::cerr << "[plot_response_distributions] histogram 'h3_resp_def_p_isHadH_all' not found\n";
-    return;
-  }
-
-  std::cout << "[INFO] Opened " << filePath << std::endl;
-  std::cout << "[INFO] Histogram range in p: " 
-            << h3->GetZaxis()->GetXmin() << " - " << h3->GetZaxis()->GetXmax() << " GeV" << std::endl;
-
-  std::string baseplots = "/eos/user/m/mmarjama/my_pion_analysis/plots2025";
-  gSystem->mkdir(baseplots.c_str(), true);
-
-  std::string datasetDir = baseplots + "/" + std::string(tag) + "/resp_dists";
-  gSystem->mkdir(datasetDir.c_str(), true);
-
-  int idx = 0;
-  for (auto& bin : bins) {
-    double pmin = bin.first;
-    double pmax = bin.second;
-
-    int z1 = h3->GetZaxis()->FindBin(pmin + 1e-3);
-    int z2 = h3->GetZaxis()->FindBin(pmax - 1e-3);
-    if (z2 <= z1) z2 = z1 + 1; // varmistetaan että projektion alue ei ole tyhjä
-
-    std::cout << "[DEBUG] Projecting p range " << pmin << "–" << pmax 
-              << " GeV  (z1=" << z1 << ", z2=" << z2 << ")" << std::endl;
-
-    auto* h1 = h3->ProjectionX(Form("proj_ep_%s_bin%d", tag, idx), 1, -1, z1, z2);
-    if (!h1 || h1->GetEntries() == 0) {
-      std::cout << "[WARN] No entries in bin " << pmin << "–" << pmax << " GeV" << std::endl;
-      ++idx;
-      continue;
-    }
-
-    h1->SetLineWidth(2);
-    h1->SetLineColor(kBlue + idx);
-    h1->SetTitle(Form("E/p distribution (HCAL only) — %.1f < p < %.1f GeV;E/p;Events", pmin, pmax));
-
-    TCanvas c(Form("c_resp_%s_bin%d", tag, idx), "", 800, 600);
-    h1->Draw("HIST E");
-
-    std::string outname = Form("%s/respDist_%s_%.0f_%.0f.png", datasetDir.c_str(), tag, pmin, pmax);
-    std::cout << "[INFO] Saving " << outname << std::endl;
-    c.SaveAs(outname.c_str());
-    ++idx;
-  }
-}
-
-// --- 2D heatmapit log-x:llä + profiilit + monisivuinen PDF ---
-void make_h2_maps_logx_pdf(const char* inpath, const char* outdirTag) {
-  gStyle->SetPalette(kBird);
-
-
 
 // ----------------------------------------------------------------------
 // Piirretään overlay: kahden datasetin E/p-jakaumat samoille p-alueille
@@ -1781,8 +1837,8 @@ void plot_overlay_responses(const char* file1, const char* tag1,
       }
 
       // Normalize
-      if (h1->Integral() > 0) h1->Scale(1.0 / h1->Integral());
-      if (h2->Integral() > 0) h2->Scale(1.0 / h2->Integral());
+      // if (h1->Integral() > 0) h1->Scale(1.0 / h1->Integral());
+      // if (h2->Integral() > 0) h2->Scale(1.0 / h2->Integral());
 
       h1->SetLineColor(kBlue);
       h2->SetLineColor(kRed);
@@ -1863,8 +1919,8 @@ void plot_overlay_responses(const char* file1, const char* tag1,
 
         if (!h1 || !h2 || h1->GetEntries() == 0 || h2->GetEntries() == 0) continue;
 
-        if (h1->Integral() > 0) h1->Scale(1.0 / h1->Integral());
-        if (h2->Integral() > 0) h2->Scale(1.0 / h2->Integral());
+        // if (h1->Integral() > 0) h1->Scale(1.0 / h1->Integral());
+        // if (h2->Integral() > 0) h2->Scale(1.0 / h2->Integral());
 
         h1->SetLineColor(kBlue);
         h2->SetLineColor(kRed);
