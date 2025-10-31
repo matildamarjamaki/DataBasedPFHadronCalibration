@@ -1,0 +1,21 @@
+executable            = RunAtBatch.sh
+universe              = vanilla
+output                = BatchLog/Ana.$(SAMPLE).$(ClusterId).$(ProcId).out
+error                 = BatchLog/Ana.$(SAMPLE).$(ClusterId).$(ProcId).err
+log                   = BatchLog/Ana.$(ClusterId).log
+
+#transfer_input_files  = scripts, SetupLCGStack.sh, input_lists, myProxy
+#should_transfer_files = YES
+#when_to_transfer_output = ON_EXIT
+
+environment = "JOBWORKDIR=$ENV(PWD)"
+
+CORES=4
+
+request_cpus = $(CORES)
+
+arguments    = $(SAMPLE) $(CORES)
++JobFlavour  = "longlunch"
+queue SAMPLE from (
+test
+)

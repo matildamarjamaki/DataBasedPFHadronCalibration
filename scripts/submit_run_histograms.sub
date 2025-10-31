@@ -1,0 +1,13 @@
+universe = vanilla
+Executable = run.sh
+arguments = $(FILELIST) $(TAG) $(OUTDIR)
+
+transfer_input_files = run_histograms
+output = logs/job_test.out
+error = logs/job_test.err
+log = logs/job_test.log
+
+request_cpus = 4
++JobFlavour = "microcentury"
+
+queue FILELIST, TAG, OUTDIR from files_to_process_test.txt

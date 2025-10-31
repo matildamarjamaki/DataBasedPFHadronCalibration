@@ -27,7 +27,8 @@
 #include <map>
 #include <vector>
 #include <fstream>
-#include "include/vetomap_utils.h"
+#include "include1/vetomap_utils.h"
+#include "ROOT/RDFHelpers.hxx"
 
 
 // golden JSON -apufunktiot
@@ -79,7 +80,15 @@ std::string NormalizeInputPath(const std::string &s) {
 
 // PÄÄFUNKTIO: tekee histogrammit ja kirjoittaa ne tiedostoon
 // void run_histograms(const char* listfile, const char* tag, const char* outpath) {
-void run_histograms(const char* listfile, const char* tag, const char* outpath = "") {
+void run_histograms(const char* listfile, const char* tag, const char* outpath = "", int ncores=4) {
+
+  // Lataa veto map (aja kerran per prosessi)
+  try {
+    veto::Load("/eos/user/m/mmarjama/my_pion_analysis/scripts/JetVetoMap.root", "h_jetVetoMap");
+    std::cout << "[VETO] Loaded veto map." << std::endl;
+  } catch (const std::exception& e) {
+    std::cerr << e.what() << "\n[VETO] Proceeding without veto (map missing)." << std::endl;
+  }
 
 
   // Lataa veto map (aja kerran per prosessi)
@@ -95,7 +104,7 @@ void run_histograms(const char* listfile, const char* tag, const char* outpath =
     auto start = std::chrono::high_resolution_clock::now();
 
     // monisäikeisyys
-    ROOT::EnableImplicitMT();
+    ROOT::EnableImplicitMT(ncores);
 
     // LUETAAN ROOT-tiedostojen polut listasta (robusti)
     std::ifstream infile(listfile);
@@ -117,6 +126,8 @@ void run_histograms(const char* listfile, const char* tag, const char* outpath =
     // Luo RDataFrame
     ROOT::RDataFrame df("Events", files);
 
+    ROOT::RDF::Experimental::AddProgressBar(df);
+
     // --- Golden JSON (vain datalle) ---
     auto golden = LoadGoldenJSON("/eos/user/c/cmsdqm/www/CAF/certification/Collisions25/Cert_Collisions2025_391658_397595_Golden.json");
 
@@ -135,6 +146,7 @@ void run_histograms(const char* listfile, const char* tag, const char* outpath =
         "Flag_eeBadScFilter && "
         "Flag_ecalBadCalibFilter",
         "Event cleaning flags");
+
 
     // --- Progress monitor ---
     auto df_mon = df_clean.Define("dummyCounter", [](ULong64_t entry){
