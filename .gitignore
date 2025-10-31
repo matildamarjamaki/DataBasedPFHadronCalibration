@@ -26,3 +26,5 @@ run_all.sh.o*
 *.tex
 *.png
 *.pdf
+scripts/run_histograms
+scripts/plot_histograms
