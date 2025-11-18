@@ -63,7 +63,7 @@ const double trkPBins[] = {
   7.2, 7.9, 8.6, 9.3, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
   16.5, 18.0, 20.0, 22.0, 25.0, 30.0, 35.0, 40.0, 45.0,
   // vanha: 55.0, 70.0, 130.0
-  55.0, 70.0, 100.0, 115.0, 130.0
+  55.0, 70.0, 100.0, 150.0
 };
 const int nTrkPBins = sizeof(trkPBins)/sizeof(double) - 1;
 
@@ -212,6 +212,35 @@ void run_histograms(const char* listfile, const char* tag, const char* outpath =
         // identiteettifiltteri, selkeäksi lokiin
         df_json = df.Filter("1", "No JSON filter");
     }
+
+
+
+//     // --- Event cleaning flags ---
+//     auto df_clean = df_json.Filter(
+//         "Flag_goodVertices && "
+//         "Flag_globalSuperTightHalo2016Filter && "
+//         "Flag_EcalDeadCellTriggerPrimitiveFilter && "
+//         "Flag_BadPFMuonFilter && "
+//         "Flag_BadPFMuonDzFilter && "
+//         "Flag_hfNoisyHitsFilter && "
+//         "Flag_eeBadScFilter && "
+//         "Flag_ecalBadCalibFilter",
+//         "Event cleaning flags");
+
+//     // --- GLOBAL ETA CUT (barrel)
+//     auto df_eta = df_clean.Filter("abs(PFCand_eta) < 1.3", "Global |eta| < 1.3 cut");
+
+//     // --- Progress monitor ---
+//     auto df_mon = df_eta.Define("dummyCounter", [](ULong64_t entry){
+//         if (entry % 100000 == 0)
+//             std::cout << "[Progress] Processed " << entry << " events" << std::endl;
+//         return 0;
+//     }, {"rdfentry_"});
+
+//     // --- Tästä eteenpäin normaali analyysi alkaa df_eta:sta ---
+//     auto df_base = df_eta
+//       .Define("isoMask", "(abs(PFCand_pdgId) == 211) && PFCand_isIsolatedChargedHadron && abs(PFCand_eta) <= 1.3")
+//       .Filter("Sum(isoMask) > 0", "Has isolated charged pions")
 
 
     // --- Event cleaning flags (standard CMS “tight” set) ---
@@ -503,98 +532,496 @@ profiles.push_back(df_iso.Profile1D({"h_frac_E_cut",   "Fraction (HCAL E/E_{raw}
 profiles.push_back(df_iso.Profile1D({"h_frac_MIP_cut", "Fraction (HCAL E/E_{raw}>0.9): MIP;p (GeV);fraction",          nTrkPBins, trkPBins}, "pIso_cut", "isHadMIP_float_cut"));
 profiles.push_back(df_iso.Profile1D({"h_frac_EH_cut",  "Fraction (HCAL E/E_{raw}>0.9): ECAL+HCAL;p (GeV);fraction",    nTrkPBins, trkPBins}, "pIso_cut", "isHadEH_float_cut"));
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// // 2D & profiilit: S1–S4 (nimet yhtenevät myöhempien plottien kanssa)
+// // S1: Raw/p, HCAL cut
+// h2_histos.push_back(df_iso.Histo2D({"h2_ep_vs_p_S1_raw_cut", "S1: Raw E/p vs p (HCAL E/E_{raw}>0.9);p (GeV);E/p",
+//                                     nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "ep_raw_cut"));
+// profiles .push_back(df_iso.Profile1D({"prof_ep_vs_p_S1_raw_cut", "S1: <Raw E/p> vs p (HCAL E/E_{raw}>0.9);p (GeV);E/p",
+//                                       nTrkPBins, trkPBins}, "pIso", "ep_raw_cut"));
+// h3_histos.push_back(df_iso.Histo3D({"h3_S1_raw_cut_ep_vs_hcal_p",
+//                                     "S1: Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (cut);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//                                     50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_raw_cut", "hcalCorrFactor", "pIso"));
+
+// // S2: Default/p, HCAL cut
+// h2_histos.push_back(df_iso.Histo2D({"h2_ep_vs_p_S2_def_cut", "S2: Default E/p vs p (HCAL E/E_{raw}>0.9);p (GeV);E/p",
+//                                     nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "ep_def_cut"));
+// profiles .push_back(df_iso.Profile1D({"prof_ep_vs_p_S2_def_cut", "S2: <Default E/p> vs p (HCAL E/E_{raw}>0.9);p (GeV);E/p",
+//                                       nTrkPBins, trkPBins}, "pIso", "ep_def_cut"));
+// h3_histos.push_back(df_iso.Histo3D({"h3_S2_def_cut_ep_vs_hcal_p",
+//                                     "S2: Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (cut);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//                                     50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_def_cut", "hcalCorrFactor", "pIso"));
+
+// // S3: Raw/p, no cut
+// h2_histos.push_back(df_iso.Histo2D({"h2_ep_vs_p_S3_raw_all", "S3: Raw E/p vs p (no cut);p (GeV);E/p",
+//                                     nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "ep_raw_all"));
+// profiles .push_back(df_iso.Profile1D({"prof_ep_vs_p_S3_raw_all", "S3: <Raw E/p> vs p (no cut);p (GeV);E/p",
+//                                       nTrkPBins, trkPBins}, "pIso", "ep_raw_all"));
+// h3_histos.push_back(df_iso.Histo3D({"h3_S3_raw_ep_vs_hcal_p",
+//                                     "S3: Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p;E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//                                     50, 0.0, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_raw_all", "hcalCorrFactor", "pIso"));
+
+// // S4: Default/p, no cut
+// h2_histos.push_back(df_iso.Histo2D({"h2_ep_vs_p_S4_def_all", "S4: Default E/p vs p (no cut);p (GeV);E/p",
+//                                     nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "ep_def_all"));
+// profiles .push_back(df_iso.Profile1D({"prof_ep_vs_p_S4_def_all", "S4: <Default E/p> vs p (no cut);p (GeV);E/p",
+//                                       nTrkPBins, trkPBins}, "pIso", "ep_def_all"));
+// h3_histos.push_back(df_iso.Histo3D({"h3_S4_def_ep_vs_hcal_p",
+//                                     "S4: Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p;E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//                                     50, 0.0, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_def_all", "hcalCorrFactor", "pIso"));
+
+// // Per-tyyppiset 3D:t: Default E/p + HCAL cut (plot_histograms.cc käyttää näitä)
+// h3_histos.push_back(df_iso2.Histo3D({"h3_resp_corr_p_isHadH",
+//   "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, HCAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//   50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_def_H_cut", "hcal_H_cut", "p_H_cut"));
+// h3_histos.push_back(df_iso2.Histo3D({"h3_resp_corr_p_isHadE",
+//   "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, ECAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//   50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_def_E_cut", "hcal_E_cut", "p_E_cut"));
+// h3_histos.push_back(df_iso2.Histo3D({"h3_resp_corr_p_isHadMIP",
+//   "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, MIP);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//   50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_def_MIP_cut", "hcal_MIP_cut", "p_MIP_cut"));
+// h3_histos.push_back(df_iso2.Histo3D({"h3_resp_corr_p_isHadEH",
+//   "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, ECAL+HCAL);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//   50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_def_EH_cut", "hcal_EH_cut", "p_EH_cut"));
+
+// // Per-tyyppiset 3D:t: Default E/p, no cut (Y 0.0–2.5)
+// h3_histos.push_back(df_iso_nocut.Histo3D({"h3_resp_def_p_isHadH_all",
+//   "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, HCAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//   50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_def_H_all", "hcal_H_all", "p_H_all"));
+// h3_histos.push_back(df_iso_nocut.Histo3D({"h3_resp_def_p_isHadE_all",
+//   "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, ECAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//   50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_def_E_all", "hcal_E_all", "p_E_all"));
+// h3_histos.push_back(df_iso_nocut.Histo3D({"h3_resp_def_p_isHadMIP_all",
+//   "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, MIP);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//   50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_def_MIP_all", "hcal_MIP_all", "p_MIP_all"));
+// h3_histos.push_back(df_iso_nocut.Histo3D({"h3_resp_def_p_isHadEH_all",
+//   "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, ECAL+HCAL);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//   50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_def_EH_all", "hcal_EH_all", "p_EH_all"));
+
+// // Per-tyyppiset 3D:t: Raw E/p, no cut (Y 0.0–2.5)
+// h3_histos.push_back(df_iso_raw_all.Histo3D({"h3_resp_raw_p_isHadH_all",
+//   "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, HCAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//   50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_raw_H_all", "hcal_H_all", "p_H_all"));
+// h3_histos.push_back(df_iso_raw_all.Histo3D({"h3_resp_raw_p_isHadE_all",
+//   "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, ECAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//   50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_raw_E_all", "hcal_E_all", "p_E_all"));
+// h3_histos.push_back(df_iso_raw_all.Histo3D({"h3_resp_raw_p_isHadMIP_all",
+//   "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, MIP);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//   50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_raw_MIP_all", "hcal_MIP_all", "p_MIP_all"));
+// h3_histos.push_back(df_iso_raw_all.Histo3D({"h3_resp_raw_p_isHadEH_all",
+//   "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, ECAL+HCAL);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//   50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_raw_EH_all", "hcal_EH_all", "p_EH_all"));
+
+// // Per-tyyppiset 3D:t: Raw E/p + HCAL cut (pyysit nämä nimillä "h3_resp_raw_p_isHad*_cut")
+// h3_histos.push_back(df_iso_raw_cut.Histo3D({"h3_resp_raw_p_isHadH_cut",
+//   "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, HCAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//   50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_raw_H_cut", "hcal_H_cut", "p_H_cut"));
+// h3_histos.push_back(df_iso_raw_cut.Histo3D({"h3_resp_raw_p_isHadE_cut",
+//   "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, ECAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//   50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_raw_E_cut", "hcal_E_cut", "p_E_cut"));
+// h3_histos.push_back(df_iso_raw_cut.Histo3D({"h3_resp_raw_p_isHadMIP_cut",
+//   "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, MIP);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//   50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_raw_MIP_cut", "hcal_MIP_cut", "p_MIP_cut"));
+// h3_histos.push_back(df_iso_raw_cut.Histo3D({"h3_resp_raw_p_isHadEH_cut",
+//   "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, ECAL+HCAL);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+//   50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_raw_EH_cut", "hcal_EH_cut", "p_EH_cut"));
+
+
+
+
+
+
+
 // 2D & profiilit: S1–S4 (nimet yhtenevät myöhempien plottien kanssa)
-// S1: Raw/p, HCAL cut
-h2_histos.push_back(df_iso.Histo2D({"h2_ep_vs_p_S1_raw_cut", "S1: Raw E/p vs p (HCAL E/E_{raw}>0.9);p (GeV);E/p",
-                                    nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "ep_raw_cut"));
-profiles .push_back(df_iso.Profile1D({"prof_ep_vs_p_S1_raw_cut", "S1: <Raw E/p> vs p (HCAL E/E_{raw}>0.9);p (GeV);E/p",
-                                      nTrkPBins, trkPBins}, "pIso", "ep_raw_cut"));
-h3_histos.push_back(df_iso.Histo3D({"h3_S1_raw_cut_ep_vs_hcal_p",
-                                    "S1: Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (cut);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-                                    50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_raw_cut", "hcalCorrFactor", "pIso"));
 
-// S2: Default/p, HCAL cut
-h2_histos.push_back(df_iso.Histo2D({"h2_ep_vs_p_S2_def_cut", "S2: Default E/p vs p (HCAL E/E_{raw}>0.9);p (GeV);E/p",
-                                    nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "ep_def_cut"));
-profiles .push_back(df_iso.Profile1D({"prof_ep_vs_p_S2_def_cut", "S2: <Default E/p> vs p (HCAL E/E_{raw}>0.9);p (GeV);E/p",
-                                      nTrkPBins, trkPBins}, "pIso", "ep_def_cut"));
-h3_histos.push_back(df_iso.Histo3D({"h3_S2_def_cut_ep_vs_hcal_p",
-                                    "S2: Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (cut);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-                                    50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_def_cut", "hcalCorrFactor", "pIso"));
+// ------------------------------------------------------------
+// S1: Raw/p, HCAL cut — inklusiivinen (kaikki hadronityypit)
+// ------------------------------------------------------------
+h2_histos.push_back(df_iso.Histo2D(
+  {"h2_ep_vs_p_S1_raw_cut",
+   "S1: Raw E/p vs p (HCAL E/E_{raw}>0.9);p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.0, 2.5},
+  "pIso", "ep_raw_cut"));
 
-// S3: Raw/p, no cut
-h2_histos.push_back(df_iso.Histo2D({"h2_ep_vs_p_S3_raw_all", "S3: Raw E/p vs p (no cut);p (GeV);E/p",
-                                    nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "ep_raw_all"));
-profiles .push_back(df_iso.Profile1D({"prof_ep_vs_p_S3_raw_all", "S3: <Raw E/p> vs p (no cut);p (GeV);E/p",
-                                      nTrkPBins, trkPBins}, "pIso", "ep_raw_all"));
-h3_histos.push_back(df_iso.Histo3D({"h3_S3_raw_ep_vs_hcal_p",
-                                    "S3: Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p;E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-                                    50, 0.0, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_raw_all", "hcalCorrFactor", "pIso"));
+profiles.push_back(df_iso.Profile1D(
+  {"prof_ep_vs_p_S1_raw_cut",
+   "S1: <Raw E/p> vs p (HCAL E/E_{raw}>0.9);p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "pIso", "ep_raw_cut"));
 
-// S4: Default/p, no cut
-h2_histos.push_back(df_iso.Histo2D({"h2_ep_vs_p_S4_def_all", "S4: Default E/p vs p (no cut);p (GeV);E/p",
-                                    nTrkPBins, trkPBins, 40, 0.05, 2.25}, "pIso", "ep_def_all"));
-profiles .push_back(df_iso.Profile1D({"prof_ep_vs_p_S4_def_all", "S4: <Default E/p> vs p (no cut);p (GeV);E/p",
-                                      nTrkPBins, trkPBins}, "pIso", "ep_def_all"));
-h3_histos.push_back(df_iso.Histo3D({"h3_S4_def_ep_vs_hcal_p",
-                                    "S4: Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p;E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-                                    50, 0.0, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_def_all", "hcalCorrFactor", "pIso"));
+h3_histos.push_back(df_iso.Histo3D(
+  {"h3_S1_raw_cut_ep_vs_hcal_p",
+   "S1: Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (cut);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+   50, 0.0, 2.5,
+   50, 0.0, 2.5,
+   150,0.0, 150.0},
+  "ep_raw_cut", "hcalCorrFactor", "pIso"));
 
-// Per-tyyppiset 3D:t: Default E/p + HCAL cut (plot_histograms.cc käyttää näitä)
-h3_histos.push_back(df_iso2.Histo3D({"h3_resp_corr_p_isHadH",
-  "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, HCAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-  50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_def_H_cut", "hcal_H_cut", "p_H_cut"));
-h3_histos.push_back(df_iso2.Histo3D({"h3_resp_corr_p_isHadE",
-  "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, ECAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-  50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_def_E_cut", "hcal_E_cut", "p_E_cut"));
-h3_histos.push_back(df_iso2.Histo3D({"h3_resp_corr_p_isHadMIP",
-  "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, MIP);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-  50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_def_MIP_cut", "hcal_MIP_cut", "p_MIP_cut"));
-h3_histos.push_back(df_iso2.Histo3D({"h3_resp_corr_p_isHadEH",
-  "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, ECAL+HCAL);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-  50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_def_EH_cut", "hcal_EH_cut", "p_EH_cut"));
+// ------------------------------------------------------------
+// S1: Raw/p, HCAL cut — per hadron type (H, E, MIP, EH)
+// (raw E/p + HCAL cut: df_iso_raw_cut)
+// ------------------------------------------------------------
+h2_histos.push_back(df_iso_raw_cut.Histo2D(
+  {"h2_ep_vs_p_S1_raw_cut_isHadH",
+   "S1 (HCAL cut, HCAL only): Raw E/p vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.0, 2.5},
+  "p_H_cut", "ep_raw_H_cut"));
+profiles.push_back(df_iso_raw_cut.Profile1D(
+  {"prof_ep_vs_p_S1_raw_cut_isHadH",
+   "S1 (HCAL cut, HCAL only): <Raw E/p> vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "p_H_cut", "ep_raw_H_cut"));
 
+h2_histos.push_back(df_iso_raw_cut.Histo2D(
+  {"h2_ep_vs_p_S1_raw_cut_isHadE",
+   "S1 (HCAL cut, ECAL only): Raw E/p vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.0, 2.5},
+  "p_E_cut", "ep_raw_E_cut"));
+profiles.push_back(df_iso_raw_cut.Profile1D(
+  {"prof_ep_vs_p_S1_raw_cut_isHadE",
+   "S1 (HCAL cut, ECAL only): <Raw E/p> vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "p_E_cut", "ep_raw_E_cut"));
+
+h2_histos.push_back(df_iso_raw_cut.Histo2D(
+  {"h2_ep_vs_p_S1_raw_cut_isHadMIP",
+   "S1 (HCAL cut, MIP): Raw E/p vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.0, 2.5},
+  "p_MIP_cut", "ep_raw_MIP_cut"));
+profiles.push_back(df_iso_raw_cut.Profile1D(
+  {"prof_ep_vs_p_S1_raw_cut_isHadMIP",
+   "S1 (HCAL cut, MIP): <Raw E/p> vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "p_MIP_cut", "ep_raw_MIP_cut"));
+
+h2_histos.push_back(df_iso_raw_cut.Histo2D(
+  {"h2_ep_vs_p_S1_raw_cut_isHadEH",
+   "S1 (HCAL cut, ECAL+HCAL): Raw E/p vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.0, 2.5},
+  "p_EH_cut", "ep_raw_EH_cut"));
+profiles.push_back(df_iso_raw_cut.Profile1D(
+  {"prof_ep_vs_p_S1_raw_cut_isHadEH",
+   "S1 (HCAL cut, ECAL+HCAL): <Raw E/p> vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "p_EH_cut", "ep_raw_EH_cut"));
+
+
+// ------------------------------------------------------------
+// S2: Default/p, HCAL cut — inklusiivinen
+// ------------------------------------------------------------
+h2_histos.push_back(df_iso.Histo2D(
+  {"h2_ep_vs_p_S2_def_cut",
+   "S2: Default E/p vs p (HCAL E/E_{raw}>0.9);p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.0, 2.5},
+  "pIso", "ep_def_cut"));
+
+profiles.push_back(df_iso.Profile1D(
+  {"prof_ep_vs_p_S2_def_cut",
+   "S2: <Default E/p> vs p (HCAL E/E_{raw}>0.9);p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "pIso", "ep_def_cut"));
+
+h3_histos.push_back(df_iso.Histo3D(
+  {"h3_S2_def_cut_ep_vs_hcal_p",
+   "S2: Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (cut);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+   50, 0.0, 2.5,
+   50, 0., 2.5,
+   150,0.0, 150.0},
+  "ep_def_cut", "hcalCorrFactor", "pIso"));
+
+// ------------------------------------------------------------
+// S2: Default/p, HCAL cut — per hadron type (H, E, MIP, EH)
+// (default E/p + HCAL cut: df_iso2)
+// ------------------------------------------------------------
+h2_histos.push_back(df_iso2.Histo2D(
+  {"h2_ep_vs_p_S2_def_cut_isHadH",
+   "S2 (HCAL cut, HCAL only): Default E/p vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.05, 2.25},
+  "p_H_cut", "ep_def_H_cut"));
+profiles.push_back(df_iso2.Profile1D(
+  {"prof_ep_vs_p_S2_def_cut_isHadH",
+   "S2 (HCAL cut, HCAL only): <Default E/p> vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "p_H_cut", "ep_def_H_cut"));
+
+h2_histos.push_back(df_iso2.Histo2D(
+  {"h2_ep_vs_p_S2_def_cut_isHadE",
+   "S2 (HCAL cut, ECAL only): Default E/p vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.0, 2.5},
+  "p_E_cut", "ep_def_E_cut"));
+profiles.push_back(df_iso2.Profile1D(
+  {"prof_ep_vs_p_S2_def_cut_isHadE",
+   "S2 (HCAL cut, ECAL only): <Default E/p> vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "p_E_cut", "ep_def_E_cut"));
+
+h2_histos.push_back(df_iso2.Histo2D(
+  {"h2_ep_vs_p_S2_def_cut_isHadMIP",
+   "S2 (HCAL cut, MIP): Default E/p vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.0, 2.5},
+  "p_MIP_cut", "ep_def_MIP_cut"));
+profiles.push_back(df_iso2.Profile1D(
+  {"prof_ep_vs_p_S2_def_cut_isHadMIP",
+   "S2 (HCAL cut, MIP): <Default E/p> vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "p_MIP_cut", "ep_def_MIP_cut"));
+
+h2_histos.push_back(df_iso2.Histo2D(
+  {"h2_ep_vs_p_S2_def_cut_isHadEH",
+   "S2 (HCAL cut, ECAL+HCAL): Default E/p vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.0, 2.5},
+  "p_EH_cut", "ep_def_EH_cut"));
+profiles.push_back(df_iso2.Profile1D(
+  {"prof_ep_vs_p_S2_def_cut_isHadEH",
+   "S2 (HCAL cut, ECAL+HCAL): <Default E/p> vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "p_EH_cut", "ep_def_EH_cut"));
+
+
+// ------------------------------------------------------------
+// S3: Raw/p, no cut — inklusiivinen
+// ------------------------------------------------------------
+h2_histos.push_back(df_iso.Histo2D(
+  {"h2_ep_vs_p_S3_raw_all",
+   "S3: Raw E/p vs p (no cut);p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.0, 2.5},
+  "pIso", "ep_raw_all"));
+
+profiles.push_back(df_iso.Profile1D(
+  {"prof_ep_vs_p_S3_raw_all",
+   "S3: <Raw E/p> vs p (no cut);p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "pIso", "ep_raw_all"));
+
+h3_histos.push_back(df_iso.Histo3D(
+  {"h3_S3_raw_ep_vs_hcal_p",
+   "S3: Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p;E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+   50, 0.0, 2.5,
+   50, 0.0, 2.5,
+   150,0.0, 150.0},
+  "ep_raw_all", "hcalCorrFactor", "pIso"));
+
+// ------------------------------------------------------------
+// S3: Raw/p, no cut — per hadron type (df_iso_raw_all)
+// ------------------------------------------------------------
+h2_histos.push_back(df_iso_raw_all.Histo2D(
+  {"h2_ep_vs_p_S3_raw_all_isHadH",
+   "S3 (no cut, HCAL only): Raw E/p vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.0, 2.5},
+  "p_H_all", "ep_raw_H_all"));
+profiles.push_back(df_iso_raw_all.Profile1D(
+  {"prof_ep_vs_p_S3_raw_all_isHadH",
+   "S3 (no cut, HCAL only): <Raw E/p> vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "p_H_all", "ep_raw_H_all"));
+
+h2_histos.push_back(df_iso_raw_all.Histo2D(
+  {"h2_ep_vs_p_S3_raw_all_isHadE",
+   "S3 (no cut, ECAL only): Raw E/p vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.0, 2.5},
+  "p_E_all", "ep_raw_E_all"));
+profiles.push_back(df_iso_raw_all.Profile1D(
+  {"prof_ep_vs_p_S3_raw_all_isHadE",
+   "S3 (no cut, ECAL only): <Raw E/p> vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "p_E_all", "ep_raw_E_all"));
+
+h2_histos.push_back(df_iso_raw_all.Histo2D(
+  {"h2_ep_vs_p_S3_raw_all_isHadMIP",
+   "S3 (no cut, MIP): Raw E/p vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.0, 2.5},
+  "p_MIP_all", "ep_raw_MIP_all"));
+profiles.push_back(df_iso_raw_all.Profile1D(
+  {"prof_ep_vs_p_S3_raw_all_isHadMIP",
+   "S3 (no cut, MIP): <Raw E/p> vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "p_MIP_all", "ep_raw_MIP_all"));
+
+h2_histos.push_back(df_iso_raw_all.Histo2D(
+  {"h2_ep_vs_p_S3_raw_all_isHadEH",
+   "S3 (no cut, ECAL+HCAL): Raw E/p vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.0, 2.50},
+  "p_EH_all", "ep_raw_EH_all"));
+profiles.push_back(df_iso_raw_all.Profile1D(
+  {"prof_ep_vs_p_S3_raw_all_isHadEH",
+   "S3 (no cut, ECAL+HCAL): <Raw E/p> vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "p_EH_all", "ep_raw_EH_all"));
+
+
+// ------------------------------------------------------------
+// S4: Default/p, no cut — inklusiivinen
+// ------------------------------------------------------------
+h2_histos.push_back(df_iso.Histo2D(
+  {"h2_ep_vs_p_S4_def_all",
+   "S4: Default E/p vs p (no cut);p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.0, 2.50},
+  "pIso", "ep_def_all"));
+
+profiles.push_back(df_iso.Profile1D(
+  {"prof_ep_vs_p_S4_def_all",
+   "S4: <Default E/p> vs p (no cut);p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "pIso", "ep_def_all"));
+
+h3_histos.push_back(df_iso.Histo3D(
+  {"h3_S4_def_ep_vs_hcal_p",
+   "S4: Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p;E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+   50, 0.0, 2.5,
+   50, 0.0, 2.5,
+   150,0.0, 150.0},
+  "ep_def_all", "hcalCorrFactor", "pIso"));
+
+// ------------------------------------------------------------
+// S4: Default/p, no cut — per hadron type (df_iso_nocut)
+// ------------------------------------------------------------
+h2_histos.push_back(df_iso_nocut.Histo2D(
+  {"h2_ep_vs_p_S4_def_all_isHadH",
+   "S4 (no cut, HCAL only): Default E/p vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.0, 2.5},
+  "p_H_all", "ep_def_H_all"));
+profiles.push_back(df_iso_nocut.Profile1D(
+  {"prof_ep_vs_p_S4_def_all_isHadH",
+   "S4 (no cut, HCAL only): <Default E/p> vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "p_H_all", "ep_def_H_all"));
+
+h2_histos.push_back(df_iso_nocut.Histo2D(
+  {"h2_ep_vs_p_S4_def_all_isHadE",
+   "S4 (no cut, ECAL only): Default E/p vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.0, 2.5},
+  "p_E_all", "ep_def_E_all"));
+profiles.push_back(df_iso_nocut.Profile1D(
+  {"prof_ep_vs_p_S4_def_all_isHadE",
+   "S4 (no cut, ECAL only): <Default E/p> vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "p_E_all", "ep_def_E_all"));
+
+h2_histos.push_back(df_iso_nocut.Histo2D(
+  {"h2_ep_vs_p_S4_def_all_isHadMIP",
+   "S4 (no cut, MIP): Default E/p vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.0, 2.5},
+  "p_MIP_all", "ep_def_MIP_all"));
+profiles.push_back(df_iso_nocut.Profile1D(
+  {"prof_ep_vs_p_S4_def_all_isHadMIP",
+   "S4 (no cut, MIP): <Default E/p> vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "p_MIP_all", "ep_def_MIP_all"));
+
+h2_histos.push_back(df_iso_nocut.Histo2D(
+  {"h2_ep_vs_p_S4_def_all_isHadEH",
+   "S4 (no cut, ECAL+HCAL): Default E/p vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins,
+   40, 0.0, 2.5},
+  "p_EH_all", "ep_def_EH_all"));
+profiles.push_back(df_iso_nocut.Profile1D(
+  {"prof_ep_vs_p_S4_def_all_isHadEH",
+   "S4 (no cut, ECAL+HCAL): <Default E/p> vs p;p (GeV);E/p",
+   nTrkPBins, trkPBins},
+  "p_EH_all", "ep_def_EH_all"));
+
+
+// ------------------------------------------------------------
 // Per-tyyppiset 3D:t: Default E/p, no cut (Y 0.0–2.5)
-h3_histos.push_back(df_iso_nocut.Histo3D({"h3_resp_def_p_isHadH_all",
-  "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, HCAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-  50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_def_H_all", "hcal_H_all", "p_H_all"));
-h3_histos.push_back(df_iso_nocut.Histo3D({"h3_resp_def_p_isHadE_all",
-  "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, ECAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-  50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_def_E_all", "hcal_E_all", "p_E_all"));
-h3_histos.push_back(df_iso_nocut.Histo3D({"h3_resp_def_p_isHadMIP_all",
-  "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, MIP);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-  50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_def_MIP_all", "hcal_MIP_all", "p_MIP_all"));
-h3_histos.push_back(df_iso_nocut.Histo3D({"h3_resp_def_p_isHadEH_all",
-  "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, ECAL+HCAL);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-  50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_def_EH_all", "hcal_EH_all", "p_EH_all"));
+// ------------------------------------------------------------
+h3_histos.push_back(df_iso_nocut.Histo3D(
+  {"h3_resp_def_p_isHadH_all",
+   "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, HCAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+   50, 0.0, 2.5,
+   50, 0.0, 2.5,
+   150,0.0, 150.0},
+  "ep_def_H_all", "hcal_H_all", "p_H_all"));
+h3_histos.push_back(df_iso_nocut.Histo3D(
+  {"h3_resp_def_p_isHadE_all",
+   "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, ECAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+   50, 0.0, 2.5,
+   50, 0.0, 2.5,
+   150,0.0, 150.0},
+  "ep_def_E_all", "hcal_E_all", "p_E_all"));
+h3_histos.push_back(df_iso_nocut.Histo3D(
+  {"h3_resp_def_p_isHadMIP_all",
+   "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, MIP);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+   50, 0.0, 2.5,
+   50, 0.0, 2.5,
+   150,0.0, 150.0},
+  "ep_def_MIP_all", "hcal_MIP_all", "p_MIP_all"));
+h3_histos.push_back(df_iso_nocut.Histo3D(
+  {"h3_resp_def_p_isHadEH_all",
+   "Default E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, ECAL+HCAL);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+   50, 0.0, 2.5,
+   50, 0.0, 2.5,
+   150,0.0, 150.0},
+  "ep_def_EH_all", "hcal_EH_all", "p_EH_all"));
 
+
+// ------------------------------------------------------------
 // Per-tyyppiset 3D:t: Raw E/p, no cut (Y 0.0–2.5)
-h3_histos.push_back(df_iso_raw_all.Histo3D({"h3_resp_raw_p_isHadH_all",
-  "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, HCAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-  50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_raw_H_all", "hcal_H_all", "p_H_all"));
-h3_histos.push_back(df_iso_raw_all.Histo3D({"h3_resp_raw_p_isHadE_all",
-  "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, ECAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-  50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_raw_E_all", "hcal_E_all", "p_E_all"));
-h3_histos.push_back(df_iso_raw_all.Histo3D({"h3_resp_raw_p_isHadMIP_all",
-  "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, MIP);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-  50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_raw_MIP_all", "hcal_MIP_all", "p_MIP_all"));
-h3_histos.push_back(df_iso_raw_all.Histo3D({"h3_resp_raw_p_isHadEH_all",
-  "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, ECAL+HCAL);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-  50, 0.05, 2.5,  50, 0.0, 2.5,  30, 0.0, 100.0}, "ep_raw_EH_all", "hcal_EH_all", "p_EH_all"));
-
-// Per-tyyppiset 3D:t: Raw E/p + HCAL cut (pyysit nämä nimillä "h3_resp_raw_p_isHad*_cut")
-h3_histos.push_back(df_iso_raw_cut.Histo3D({"h3_resp_raw_p_isHadH_cut",
-  "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, HCAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-  50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_raw_H_cut", "hcal_H_cut", "p_H_cut"));
-h3_histos.push_back(df_iso_raw_cut.Histo3D({"h3_resp_raw_p_isHadE_cut",
-  "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, ECAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-  50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_raw_E_cut", "hcal_E_cut", "p_E_cut"));
-h3_histos.push_back(df_iso_raw_cut.Histo3D({"h3_resp_raw_p_isHadMIP_cut",
-  "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, MIP);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-  50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_raw_MIP_cut", "hcal_MIP_cut", "p_MIP_cut"));
-h3_histos.push_back(df_iso_raw_cut.Histo3D({"h3_resp_raw_p_isHadEH_cut",
-  "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (HCAL cut, ECAL+HCAL);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
-  50, 0.05, 2.5,  50, 0.9, 2.5,  30, 0.0, 100.0}, "ep_raw_EH_cut", "hcal_EH_cut", "p_EH_cut"));
+// ------------------------------------------------------------
+h3_histos.push_back(df_iso_raw_all.Histo3D(
+  {"h3_resp_raw_p_isHadH_all",
+   "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, HCAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+   50, 0.0, 2.5,
+   50, 0.0, 2.5,
+   150,0.0, 150.0},
+  "ep_raw_H_all", "hcal_H_all", "p_H_all"));
+h3_histos.push_back(df_iso_raw_all.Histo3D(
+  {"h3_resp_raw_p_isHadE_all",
+   "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, ECAL only);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+   50, 0.0, 2.5,
+   50, 0.0, 2.5,
+   150,0.0, 150.0},
+  "ep_raw_E_all", "hcal_E_all", "p_E_all"));
+h3_histos.push_back(df_iso_raw_all.Histo3D(
+  {"h3_resp_raw_p_isHadMIP_all",
+   "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, MIP);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+   50, 0.0, 2.5,
+   50, 0.0, 2.5,
+   150,0.0, 150.0},
+  "ep_raw_MIP_all", "hcal_MIP_all", "p_MIP_all"));
+h3_histos.push_back(df_iso_raw_all.Histo3D(
+  {"h3_resp_raw_p_isHadEH_all",
+   "Raw E/p vs E_{HCAL}/E_{HCAL}^{raw} vs p (no cut, ECAL+HCAL);E/p;E_{HCAL}/E_{HCAL}^{raw};p (GeV)",
+   50, 0.0, 2.5,
+   50, 0.0, 2.5,
+   150,0.0, 150.0},
+  "ep_raw_EH_all", "hcal_EH_all", "p_EH_all"));
 
   auto cutReport = df_iso.Report();
   cutReport->Print();
